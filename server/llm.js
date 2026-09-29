@@ -15,6 +15,9 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { EMERGENCIES, SEVERITY } from '../shared/triage.js';
 import { CAPABILITIES } from '../shared/capabilities.js';
+import { templateHandover } from '../shared/handover.js';
+
+export { templateHandover };
 
 const MODEL = process.env.SEHAT_MODEL || 'claude-opus-5-5';
 const TIMEOUT_MS = Number(process.env.SEHAT_AI_TIMEOUT_MS || 15000);
@@ -187,18 +190,6 @@ export async function aiVision({ imageBase64, mediaType = 'image/jpeg', lang = '
 // ---------------------------------------------------------------------------
 // 3. Pre-arrival handover note (SBAR) for the receiving hospital
 // ---------------------------------------------------------------------------
-export function templateHandover(c) {
-  const t = c.triage;
-  const p = c.patient || {};
-  const who = [p.name, p.age ? `${p.age}y` : t.patient?.age ? `${t.patient.age}y` : null, p.gender].filter(Boolean).join(', ') || 'Unknown patient';
-  return [
-    `S: ${who} – ${t.severity.toUpperCase()} ${EMERGENCIES[t.type].label.en}.`,
-    `B: ${[p.conditions?.length ? `K/C/O ${p.conditions.join(', ')}` : null, p.allergies?.length ? `Allergies: ${p.allergies.join(', ')}` : null, p.medicines?.length ? `Meds: ${p.medicines.join(', ')}` : null, p.bloodGroup ? `Blood group ${p.bloodGroup}` : null].filter(Boolean).join('. ') || 'No history available.'}`,
-    `A: ${t.summary}${t.redFlagLabels?.length && !t.summary.includes('Red flags') ? ` Red flags: ${t.redFlagLabels.join(', ')}.` : ''}${c.vision?.description ? ` Photo: ${c.vision.description}` : ''}`,
-    `R: Prepare ${t.required.map((x) => CAPABILITIES[x]?.en || x).join(', ')}. Bed: ${c.bedType?.toUpperCase() || 'ER'}.`,
-  ].join('\n');
-}
-
 export async function aiHandover(c) {
   const fallback = templateHandover(c);
   if (!aiEnabled()) return { text: fallback, engine: 'template' };

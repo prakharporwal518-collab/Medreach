@@ -28,10 +28,13 @@
     <a class="call-108" href="tel:108">📞 <span data-i18n="call108"></span></a>
   </header>
   <div id="offline" class="offline-banner hidden" data-i18n="offline" role="status"></div>
+  <div id="demoBanner" class="demo-banner hidden" role="note"><b>DEMO</b> <span data-i18n="demoBanner"></span></div>
 
   <main>
     <ol class="stepper" id="stepper" aria-hidden="true"></ol>
     <p class="step-caption" id="stepCaption"></p>
+    <div id="alonePanel" class="alone-panel hidden" role="status" aria-live="polite"></div>
+    <div id="trackPage" class="hidden"></div>
 
     <!-- ① SUDDEN EMERGENCY -->
     <section id="step-0" class="step">
@@ -45,6 +48,17 @@
         <textarea id="describe" class="describe" rows="3" aria-label="Describe the emergency"></textarea>
         <h3 class="small muted" style="margin-top:.75rem" data-i18n="quickPick"></h3>
         <div class="chips" id="chips"></div>
+      </div>
+
+      <div class="card alone-card">
+        <button id="aloneBtn" class="btn alone lg block" type="button">
+          <span data-i18n="aloneBtn"></span>
+        </button>
+        <p class="small muted" data-i18n="aloneSub" style="margin:.5rem 0 .25rem"></p>
+        <details class="contact">
+          <summary class="small" data-i18n="contactTitle"></summary>
+          <div id="contactBox" style="margin-top:.5rem"></div>
+        </details>
       </div>
 
       <div class="card">
@@ -80,6 +94,9 @@
       <div style="margin-top:1rem">
         <button id="helpBtn" class="btn danger lg block" type="button" data-i18n="getHelp"></button>
       </div>
+      <p class="small muted" style="text-align:center;margin-top:.75rem">
+        <button id="privacyBtn" class="linkish" type="button" data-i18n="privacyLink"></button>
+      </p>
     </section>
 
     <!-- ② AI UNDERSTANDS WHAT IS HAPPENING -->
@@ -115,6 +132,16 @@
     <!-- ⑧ CONFIRMED HOSPITAL -->
     <section id="step-7" class="step hidden"></section>
   </main>
+
+  <dialog id="privacyDialog" class="dialog">
+    <h2 data-i18n="privacyTitle"></h2>
+    <ul id="privacyList" class="small"></ul>
+    <button class="btn primary" type="button" data-close>OK</button>
+  </dialog>
+  <dialog id="trackDialog" class="dialog wide">
+    <div id="trackBody"></div>
+    <button class="btn" type="button" data-close>✕</button>
+  </dialog>
 
   <script src="/vendor/leaflet/leaflet.js"></script>
   <script type="module" src="/js/app.js"></script>

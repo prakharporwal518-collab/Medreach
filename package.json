@@ -7,7 +7,8 @@
   "scripts": {
     "start": "node server/index.js",
     "dev": "node --watch server/index.js",
-    "test": "node --test tests/*.test.js"
+    "test": "node --test tests/*.test.js",
+    "build:demo": "node scripts/build-demo.mjs"
   },
   "engines": {
     "node": ">=20"
@@ -25,5 +26,8 @@
     "@anthropic-ai/sdk": "^0.129.0",
     "express": "^5.2.1",
     "leaflet": "^1.9.4"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.2"
   }
 }

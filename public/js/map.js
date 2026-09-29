@@ -4,7 +4,10 @@
 const L = window.L;
 
 export function createMap(el, center, zoom = 13) {
-  const map = L.map(el, { zoomControl: true, attributionControl: true }).setView([center.lat, center.lng], zoom);
+  // Animations off: lighter on low-end phones, and a map can be safely
+  // re-created while the hospital list refreshes live.
+  const map = L.map(el, { zoomControl: true, attributionControl: true, zoomAnimation: false, fadeAnimation: false, markerZoomAnimation: false })
+    .setView([center.lat, center.lng], zoom);
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     maxZoom: 19,
     attribution: '&copy; OpenStreetMap contributors',

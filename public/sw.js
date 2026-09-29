@@ -3,11 +3,12 @@
 // understood and hospitals suggested (from the last saved status) without
 // internet. API calls are network-first with a cached fallback.
 
-const VERSION = 'sehat-v1';
+const VERSION = 'sehat-v2';
 const SHELL = [
   '/', '/index.html', '/hospital.html', '/css/app.css', '/manifest.webmanifest', '/icons/icon.svg',
   '/js/app.js', '/js/api.js', '/js/i18n.js', '/js/voice.js', '/js/vision.js', '/js/ocr.js', '/js/map.js', '/js/hospital.js',
   '/shared/triage.js', '/shared/matching.js', '/shared/predict.js', '/shared/capabilities.js', '/shared/ocr-parse.js',
+  '/shared/freshness.js', '/shared/roles.js', '/shared/handover.js',
   '/vendor/leaflet/leaflet.css', '/vendor/leaflet/leaflet.js',
 ];
 

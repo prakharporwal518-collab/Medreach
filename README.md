@@ -3,145 +3,234 @@
 **Challenge 5 · AI Innovation for Public Services & Citizen-Centric Governance · Domain: Healthcare**
 MPOnline Idea & Innovation Hackathon 2026
 
-> In a medical emergency, families in Madhya Pradesh usually rush to the *nearest* hospital, only to find there is no cardiologist on duty, the CT scanner is down, or the ICU is full, and they lose the golden hour driving to a second hospital.
-> **Sehat Setu ("health bridge") gets the patient to the *right* hospital the first time.** It understands the emergency (voice, Hindi or English), finds hospitals that can treat it *right now*, gets the hospital to confirm before you leave, and guides you there by ambulance or your own vehicle.
+> In a medical emergency, families usually rush to the *nearest* hospital, only to find there is no cardiologist on duty, the CT scanner is down, or the ICU is full. They then lose the golden hour driving to a second hospital.
+>
+> **Sehat Setu is an emergency *coordination* platform, not a diagnosis app.** It gets the patient to a hospital that can treat them, and that has **accepted** them, before they leave home.
+
+### Our USP
+
+**Emergency → Understand → Match → Verify → Accept → Transport → Confirm**
+
+| # | Feature | What makes it credible |
+|---|---|---|
+| 1 | 🤖 **AI emergency understanding** | Natural language (Hindi, English, Hinglish, voice) → structured requirements. It says *"this may indicate…"*, never *"you have…"*. |
+| 2 | 🏥 **Capability-based matching** | Not the nearest hospital, but one where the service exists, the specialist is on duty **now** and the machine works **now**. |
+| 3 | 📊 **Current resource status** | Beds, ICU, ER open/busy/diverting, equipment and duty roster, entered by **authorised hospital staff**. |
+| 4 | ⏱️ **Freshness** | 🟢 *Verified 2 min ago* · 🟡 *Verified 28 min ago – may have changed* · 🔴 *Availability unverified*. Stale data is never shown as confirmed. |
+| 5 | 📞 **Hospital acceptance** | A named staff member accepts the referral and assigns a receiving bay **before** the patient travels. |
+| 6 | 🔄 **Automatic fallback** | Decline or no response → the next suitable hospital is asked automatically. |
+| 7 | 🚑 **Transport + confirmed destination** | Ambulance request (simulated in the prototype) or own vehicle → navigation → confirmed hospital. |
+
+---
+
+## ▶️ See it instantly: one HTML file
+
+Download **[`demo/sehat-setu-prototype.html`](demo/sehat-setu-prototype.html)** and double-click it. There's no install and no server.
+You get the citizen app in a phone frame next to the hospital console.
+- Keep **"I'll act as the hospital desk"** ticked: the console logs in as the receiving hospital's Emergency Desk Officer (real OTP flow, demo OTP), and you accept the referral yourself.
+- Untick it: the ER desk is simulated.
+
+It runs the same app, API, auth and store code as the full server version, just inside the page.
+
+## Run the full version
+
+```bash
+npm install
+npm start            # http://localhost:3000        (citizen app)
+                     # http://localhost:3000/hospital (hospital console, staff login)
+npm test             # 51 tests
+npm run build:demo   # regenerate the single-file demo
+```
+
+Optional Generative AI: `export ANTHROPIC_API_KEY=...` before `npm start`. Everything works without it.
+
+---
+
+## 🟨 Demo mode vs. real deployment (what is and isn't real)
+
+We state this plainly, in the app (yellow **DEMO** banner) and here:
+
+| Part | In this prototype (**demo mode**) | In a real deployment (**live mode**) |
+|---|---|---|
+| Hospital list & locations | Real Bhopal-region hospital names; approximate coordinates | NHA Health Facility Registry (HFR) / state facility master |
+| Beds, ER status, duty roster, equipment | **Simulated seed values**, labelled *"Data source: Simulated demo data"* | Entered by authorised staff on the **Hospital Emergency Dashboard**, or synced from hospital HMIS via API |
+| "Verified N min ago" | Seed times vary so all 🟢/🟡/🔴 levels are visible; any staff update re-verifies | Only staff updates/confirmations verify data |
+| Hospital acceptance | Real flow when staff are logged in; **simulated** desk when nobody is logged in | Always a logged-in staff member |
+| Staff & OTP | Fictional staff; OTP shown on screen (no SMS gateway) | Staff registry + SMS OTP; OTP is never returned by the API (`SEHAT_DATA_MODE=live`) |
+| Ambulance | **Simulated** units and movement | Hand-off to the authorised **108 / ambulance control room (CAD)**. Sehat Setu does not control 108 |
+| Trusted-contact SMS | Simulated (logged + WhatsApp share link) | SMS gateway |
+| AI | Offline rules engine; Claude when a key is set | Claude (with the rules engine as floor and fallback) |
+
+**Proving the architecture live:** log in to the console as a hospital's staff and set the ER to *Diverting*. Every citizen currently looking at hospital options sees *"Live update from hospital dashboard"*, and that hospital disappears from their list within a second. Re-open it and it comes back, now showing *"🟢 Verified just now"* with *"Updated by: Emergency Desk Officer"*.
+
+---
+
+## 🎤 Judge Q&A: honest, short answers
+
+**"Where exactly is the AI?"**
+AI/NLP turns the citizen's words into structured requirements: emergency type, severity, red flags, age group and required capabilities. Then a **deterministic matching engine** applies those requirements to staff-verified facility data. *"AI understands the citizen's description; the final hospital selection is constrained by explicit healthcare requirements and verified facility data."* The AI never picks the hospital. The app shows this pipeline under **"How was this decided?"**.
+- With an API key, Claude does the understanding (`server/llm.js`) and can only **raise** urgency, never lower it (severity = max of AI and rules).
+- Without a key, or offline, the rules engine (`shared/triage.js`) is the floor.
+
+**"Are these real-time hospital beds?"**
+**No, not in the prototype.** The figures are simulated and labelled so. What's real is the architecture: authorised staff update the dashboard, every figure carries *who / when / source*, freshness is enforced, and a change reaches citizens instantly. See the table above for the live-deployment data sources.
+
+**"Where does hospital information come from?"**
+Every hospital card shows *Data source* (Hospital Emergency Dashboard or Simulated demo data), *Last verified* and *Updated by* (role).
+
+**"What does 'Match score 92' mean?"**
+Each card first shows a **"Why this hospital?"** checklist (required capability ✅, ER open ✅, ICU capacity reported ✅, recently verified ✅, referral status ⏳, ETA 🚑). The score comes second, and tapping it shows its parts:
+- time to care (travel + ER wait)
+- bed likely free on arrival × data freshness
+- extra helpful services
+- facility level
+
+The parts always add up to the total (this is tested).
+
+**"2 ICU beds available: so the patient is admitted?"**
+No. The app keeps three things separate:
+- **📊 Reported capacity:** what the hospital last reported, with time and source. *"Not a guarantee of admission."*
+- **📨 Referral status:** PENDING → ACCEPTED by *Emergency Desk Officer (name)* at *time*.
+- **📍 Confirmed destination:** only after acceptance, with the **receiving bay** (e.g. Resus-02).
+
+**"Does your app dispatch 108?"**
+No. *"In the prototype, ambulance dispatch is simulated. In deployment, the transport layer would integrate with the authorised emergency/ambulance service rather than independently claiming control over 108."* The app always offers **Call 108 directly**.
+
+**"Who can change what citizens see?"**
+Only logged-in hospital staff: **Hospital ID + Staff ID + OTP**. Sessions are bound to one hospital, and permissions depend on role. Every login, change, referral decision and denied attempt goes into the **audit log**.
+
+| Role | Can do |
+|---|---|
+| Hospital Nodal Officer | Everything for their hospital + audit log |
+| Emergency Desk Officer | Accept/decline referrals, ER open/busy/diverting, confirm figures |
+| Resource Manager | Beds, specialists on duty, equipment, confirm figures |
+| State Health Admin | Read-only view of all hospitals + audit logs |
+
+**"Isn't giving first aid medical advice risky?"**
+It's secondary and framed as *"Safety steps while help is arranged – standard first-aid guidance, not medical advice"*, collapsed by default. The exception is CPR, which opens when someone is "not breathing". The product is **emergency coordination**, and every AI screen says *"This is not a diagnosis. Doctors decide treatment."*
+
+**"What about someone living alone?"**
+**🆘 I'm alone mode:** one tap does all five steps automatically, with a live checklist:
+1. Location shared
+2. Trusted contact notified with a tracking link
+3. Hospital request sent
+4. Hospital accepted
+5. Ambulance requested
+
+The trusted contact's link shows status, hospital and ETA, with **no medical details**.
+
+**"Privacy?"** See [docs/PRIVACY-SECURITY.md](docs/PRIVACY-SECURITY.md). In short:
+- minimum data, with explicit consent before patient details are shared
+- health cards are read on the phone
+- ID numbers are masked
+- only the referred hospital can access the case
+- family view has no medical data
+- audit trail on every action
+- automatic deletion 24 h after hand-over
 
 ---
 
 ## The flow (our flowchart, implemented step by step)
 
 ```
-PERSON / FAMILY
+PERSON / FAMILY                                           (or 🆘 I'M ALONE → all steps automatic)
       │
 🚨 SUDDEN EMERGENCY ─────────── speak (Hindi/English/Hinglish) · type · quick-pick · 📷 photo · 🪪 scan health card
       │
-🧠 AI UNDERSTANDS ──────────── type, severity, danger signs, what the hospital must have,
-      │                          first aid read aloud, one follow-up question at a time
-📍 GET USER LOCATION ────────── GPS starts at app launch (saves seconds), tap map to correct
+🧠 AI UNDERSTANDS ──────────── extracts type, severity, red flags, age group, REQUIRED CAPABILITIES
+      │                          ("may indicate…", not a diagnosis) · one follow-up question at a time
+📍 GET USER LOCATION ────────── GPS starts at app launch, tap map to correct
       │
-🏥 FIND SUITABLE HOSPITALS
+🏥 FIND SUITABLE HOSPITALS      ← deterministic engine, no AI
    ┌──┴───────────────┐
 Capability available?  Current status?
-(has the service AND   (ER open/busy/diverting,
- specialist on duty AND  beds free now, predicted
- machine working)        bed on arrival, ER wait)
+(service exists AND    (ER open/busy/diverting, beds REPORTED,
+ specialist on duty AND  🟢🟡🔴 freshness, predicted bed on arrival,
+ machine working)        ER wait, data source)
    └──┬───────────────┘
 ⏱️ DISTANCE + ETA ───────────── traffic-aware ETA for this hour of day
       │
-📋 SHOW OPTIONS ─────────────── ranked, with "why this hospital" + "why others were excluded"
-      │                          + golden-hour "stabilise first" option for far-away critical cases
-🏥 HOSPITAL CONFIRMS ────────── real-time alert + AI pre-arrival SBAR note on the hospital console;
-      │                          declined / no answer → auto-escalates to the next best hospital
-🚑 TRANSPORT ────────────────── 108 ambulance (ALS / BLS / Janani Express) or own vehicle, with a recommendation
+📋 SHOW OPTIONS ─────────────── "Why this hospital?" checklist + explained score + "why others were excluded"
+      │                          + golden-hour "stabilise first" option · 🔒 consent before sharing details
+🏥 HOSPITAL CONFIRMS ────────── authorised staff accept + assign receiving bay (AI SBAR pre-arrival note)
+      │                          declined / no answer → next hospital automatically
+🚑 TRANSPORT ────────────────── ambulance request (simulated → 108 control room in deployment) or own vehicle
       │
-🗺️ NAVIGATION ───────────────── road route, turn-by-turn, voice guidance, live ambulance tracking,
-      │                          Google Maps hand-off, share status with family on WhatsApp
-🏥 CONFIRMED HOSPITAL ───────── bed/bay reserved, handover complete
+🗺️ NAVIGATION ───────────────── route, turn-by-turn, voice, live tracking, family tracking link
+      │
+🏥 CONFIRMED HOSPITAL ───────── reported capacity ≠ referral accepted ≠ confirmed destination
 ```
 
-Each box is one screen of the citizen app (`public/js/app.js`, steps 0 to 7).
-
-| Emergency | AI understands | Suitable hospitals | Navigation |
+| AI understands | Why this hospital? | Referral accepted | I'm alone |
 |---|---|---|---|
-| ![](docs/screenshots/1-emergency.png) | ![](docs/screenshots/2-ai-understands.png) | ![](docs/screenshots/3-hospitals.png) | ![](docs/screenshots/5-navigation.png) |
+| ![](docs/screenshots/2-ai-understands.png) | ![](docs/screenshots/3-hospitals.png) | ![](docs/screenshots/4-referral-accepted.png) | ![](docs/screenshots/5-im-alone.png) |
 
-**Hospital console:** the ER desk gets the AI pre-arrival note and accepts in one tap.
-![](docs/screenshots/4-hospital-console.png)
+**Hospital console:** staff login (Hospital ID + Staff ID + OTP) and the audit log.
+![](docs/screenshots/6-staff-login.png)
+![](docs/screenshots/7-console-audit.png)
 
 ## Every suggested technology, where it is used
 
-| Technology (from the problem statement) | How Sehat Setu uses it | Code |
+| Technology | How Sehat Setu uses it | Code |
 |---|---|---|
-| **Generative AI** | Claude understands messy, multilingual descriptions, writes first aid in the caller's language, and drafts an **SBAR pre-arrival handover note** for the ER doctor. | `server/llm.js` |
-| **Voice Bots** | Speak the emergency in Hindi or English (speech-to-text). First aid, hospital acceptance and turn-by-turn directions are **read aloud** (text-to-speech). The hospital console announces new patients. | `public/js/voice.js` |
-| **Computer Vision** | Photo of the wound or scene → Claude vision describes visible findings (bleeding, burns, bite marks, pesticide bottle). Offline, an **on-device pixel analysis** estimates visible blood or burns. | `server/llm.js` `aiVision`, `public/js/vision.js` |
-| **OCR** | Scan an **Ayushman Bharat / ABHA card, prescription or discharge summary** (Tesseract.js, English + Hindi, runs on the phone) → name, age, blood group, ABHA ID, conditions, allergies and medicines are pre-filled and sent to the hospital. | `public/js/ocr.js`, `shared/ocr-parse.js` |
-| **Predictive Analytics** | Explainable models: **traffic-aware ETA** by hour of day, **Poisson model of bed availability on arrival**, **ER wait prediction**, and an **8-hour ER arrival forecast** for hospital staffing. | `shared/predict.js` |
-| **Conversational AI** | Asks **one follow-up question at a time** (conscious? breathing? age? bleeding?) and re-assesses after each answer. Severity and first aid update live (e.g. "not breathing" → CPR first). | `shared/triage.js` `FOLLOW_UPS` |
-| **Mobile Applications** | Installable **PWA**, mobile-first, works on low-end Android, Hindi/English UI, **offline mode** (service worker, and the triage and matching engines run in the browser). | `public/manifest.webmanifest`, `public/sw.js` |
-
-## Why it's built this way
-
-- **The AI can raise urgency, never lower it.** Severity = max(rules, Claude), and required capabilities are the union of both. A model mistake can't send a heart attack to a clinic.
-- **It never blocks on the AI.** If Claude is slow, rate-limited or not configured, the offline rule engine (English + Hindi + Hinglish keywords, red flags, age modifiers) answers immediately. The app is fully usable without an API key.
-- **The same brain runs on the server and the phone.** `shared/*.js` are plain ES modules used by both, so with no internet the phone still understands the emergency and ranks hospitals from the last saved status.
-- **"Capability" means *live* capability.** A hospital with a cath lab whose cardiologist is off duty, or whose CT scanner is down, is *not* offered for a heart attack or stroke, and the app shows *why*.
-- **Explainable ranking.** Every option shows ETA, distance, bed-on-arrival probability, ER wait and the reasons behind its score. Excluded hospitals are listed with reasons too.
-- **Golden-hour safety net.** If the best capable hospital is far away and the patient is critical, the app suggests the nearest emergency department to stabilise first.
-- **Built for MP.** Hindi first, 108 always one tap away, Ayushman Bharat filter, Janani Express for pregnancy, rural CHCs and district hospitals in the registry, advice against jhaad-phoonk for snake bites, pesticide-poisoning guidance for farm emergencies.
+| **Generative AI** | Claude extracts requirements from messy multilingual descriptions and drafts an **SBAR pre-arrival handover note** for the ER doctor. | `server/llm.js` |
+| **Voice Bots** | Speak the emergency in Hindi or English. Acceptance, safety steps and directions are read aloud, and the console announces new referrals. | `public/js/voice.js` |
+| **Computer Vision** | Photo of the wound or scene → Claude vision describes visible findings. Offline: on-device pixel check for blood or burns. The photo is never uploaded when offline. | `server/llm.js`, `public/js/vision.js` |
+| **OCR** | Scan an Ayushman / ABHA card or prescription **on the phone** (Tesseract.js). Details are shared only with consent, and IDs are masked for hospitals. | `public/js/ocr.js`, `shared/ocr-parse.js` |
+| **Predictive Analytics** | Traffic-aware ETA, Poisson **bed-on-arrival** probability (weighted by freshness), ER wait, 8-hour arrival forecast for staffing. | `shared/predict.js` |
+| **Conversational AI** | One follow-up question at a time; severity and guidance update after each answer. | `shared/triage.js` |
+| **Mobile Applications** | Installable PWA, Hindi/English, offline mode (triage and matching run on the phone). | `public/`, `public/sw.js` |
 
 ## Architecture
 
 ```
-┌──────────────────────────┐        REST + Server-Sent Events        ┌─────────────────────────────┐
-│ Citizen PWA (index.html) │ ◄─────────────────────────────────────► │  Node.js + Express server    │
-│  voice · camera · OCR    │                                          │  server/index.js  (API)      │
-│  Leaflet map · offline   │                                          │  server/store.js  (cases,    │
-└──────────────────────────┘                                          │    SSE hub, ambulance sim)   │
-┌──────────────────────────┐                                          │  server/llm.js    (Claude)   │
-│ Hospital console         │ ◄─────────────────────────────────────► │  server/data/     (registry) │
-│  (hospital.html)         │   accept/decline · live bed & duty status└──────────────┬──────────────┘
-└──────────────────────────┘                                                         │
-              ▲                   shared/ (runs on server AND phone)                  │
-              └──────── triage.js · matching.js · predict.js · capabilities.js · ocr-parse.js
+Citizen PWA ─┐                         ┌─ server/api.js   one set of routes & rules (also used by the demo file)
+Family link ─┼── REST + SSE (HTTPS) ───┤  server/auth.js  Hospital ID + Staff ID + OTP, sessions, RBAC
+Hospital     │                         │  server/store.js cases, audit log, freshness stamps, consent,
+console ─────┘                         │                  masked views, retention purge, simulations
+                                       └─ server/llm.js   Claude (optional)
+shared/ (runs on server AND phone): triage · matching · predict · freshness · roles · capabilities · ocr-parse · handover
 ```
 
-| Endpoint | Purpose |
-|---|---|
-| `POST /api/triage` | Emergency understanding (rules + Claude) |
-| `POST /api/vision` | Photo analysis (Claude vision) |
-| `POST /api/match` | Capability + status → ETA → ranked hospitals |
-| `POST /api/cases` · `/:id/request` · `/:id/transport` · `/:id/arrived` | Case lifecycle |
-| `POST /api/hospitals/:id/cases/:caseId/respond` | Hospital accepts / declines |
-| `PATCH /api/hospitals/:id/status` | Hospital updates beds, ER status, specialists, equipment |
-| `GET /api/stream/case/:id` · `/api/stream/hospital/:id` | Real-time updates (SSE) |
-
-## Run it
-
-```bash
-npm install
-npm start            # http://localhost:3000
-```
-
-- Citizen app: <http://localhost:3000/> (open on your phone on the same Wi-Fi via your laptop's IP)
-- Hospital console: <http://localhost:3000/hospital>
-- Tests: `npm test` (42 tests: triage, matching, prediction, OCR parsing, AI safety merge, full API flow)
-
-**Enable Generative AI (optional):** set an Anthropic API key before starting. Everything else works without it.
-
-```bash
-export ANTHROPIC_API_KEY=sk-ant-...
-npm start
-```
+| Endpoint | Who | Purpose |
+|---|---|---|
+| `POST /api/triage` · `/api/vision` | citizen | AI understanding → requirements |
+| `POST /api/match` | citizen | Deterministic ranking + checklist + score breakdown |
+| `POST /api/cases` | citizen | Create case → returns case token + family track token (once) |
+| `POST /api/cases/:id/request` · `/transport` · `/arrived` | citizen (`X-Case-Token`) | Referral, transport, arrival |
+| `GET /api/track/:id?t=` | trusted contact | Status only, no medical data |
+| `POST /api/auth/otp` · `/api/auth/verify` · `/api/auth/logout` | staff | Login |
+| `POST /api/hospitals/:id/cases/:caseId/respond` | staff (`referral.respond`) | Accept/decline + receiving bay |
+| `PATCH /api/hospitals/:id/status` | staff (role-dependent) | Update or confirm figures → re-verifies |
+| `GET /api/hospitals/:id/audit` | Nodal Officer / Admin | Audit log |
+| `GET /api/stream/...` | per token | Live updates (SSE) |
 
 | Env var | Default | Meaning |
 |---|---|---|
 | `PORT` | `3000` | HTTP port |
-| `ANTHROPIC_API_KEY` | – | Enables Claude triage, vision and handover notes |
-| `SEHAT_MODEL` | `claude-opus-5-5` | Claude model |
-| `SEHAT_DEMO_SPEED` | `15` | Ambulance simulation speed (1 real second = N simulated seconds) |
-| `SEHAT_SIM_RESPONSE_MS` | `3500` | Delay of the simulated ER desk when no hospital console is open |
-| `SEHAT_RESPONSE_TIMEOUT_MS` | `60000` | Auto-escalate if a hospital console doesn't answer |
-| `SEHAT_SIMULATE` | `1` | Set `0` to stop the random walk of bed counts |
+| `SEHAT_DATA_MODE` | `demo` | `live` = never return OTP, no demo staff list |
+| `ANTHROPIC_API_KEY` | – | Enables Claude |
+| `SEHAT_RETENTION_MS` | 24 h | Delete personal/health details this long after hand-over |
+| `SEHAT_RESPONSE_TIMEOUT_MS` | `60000` | Auto-escalate if logged-in staff don't respond |
+| `SEHAT_SIM_RESPONSE_MS` | `3500` | Simulated desk delay (only when no staff logged in) |
+| `SEHAT_DEMO_SPEED` | `15` | Ambulance simulation speed |
 
-## 3-minute demo script (for judges)
+## 3-minute demo script
 
-1. Open the **hospital console** on a laptop and pick *Bansal Hospital*. Open the **citizen app** on a phone.
-2. On the phone tap 🎙️ and say *"Papa ko seene mein dard hai, pasina aa raha hai, 62 saal"*.
-   → Heart attack · **CRITICAL** · needs cardiologist + ICU · first aid (chew aspirin) is read aloud in Hindi.
-3. Answer the follow-up question → **Find hospitals**. Point out that JP Hospital (nearer) was excluded because it has no cardiologist, and that People's Hospital was excluded because the cardiologist is off duty *now*.
-4. On the console, toggle **Cardiologist off** at Bansal and search again: it disappears from the options. Toggle it back on.
-5. **Request admission**. The console beeps and shows the AI SBAR note. Type a bay and **Accept**. The phone confirms instantly.
-6. Choose **Ambulance**: the nearest ALS 108 ambulance is dispatched and you can watch it move on the map, on both screens.
-7. Switch the phone to airplane mode and report *"saanp ne kaat liya"*: it still understands the emergency and suggests anti-venom hospitals, offline.
+1. **Console:** log in as *Bansal Hospital → BANSAL-ED01 → OTP* (shown on screen in demo). Point at *"Updated by / Time / Data source"* and the **DEMO** banner.
+2. **Phone:** say *"Papa ko seene mein dard hai, pasina aa raha hai, 62 saal"*. The app shows *"may indicate: Heart attack · CRITICAL · needs cardiologist + ICU"*. Open **How was this decided?**: AI → requirements → deterministic engine.
+3. **Find hospitals.** Walk through one **Why this hospital?** checklist, the 🟢/🟡/🔴 freshness badges (Siddhanta 🟡, People's 🔴 excluded anyway: cardiologist off duty), and tap **Match score → what does it mean?**
+4. **Console:** set ER to **Diverting**. The phone shows a live update and Bansal disappears. Set it back to **Open**: Bansal returns as *"Verified just now"*.
+5. **Ask hospital to accept.** The console beeps and shows the SBAR note, with IDs masked and no details without consent. Enter bay *Resus-02* and **Accept referral**. The phone shows **Reported capacity → ACCEPTED by Emergency Desk Officer (name) → Confirmed destination, bay Resus-02**.
+6. **Request ambulance.** Note the *simulated* label and "Call 108 directly". Open **Preview what your contact sees**: status only, no medical details.
+7. Log in as **BANSAL-NO01** (Nodal Officer) to show the **audit log**.
+8. New tab → save a trusted contact → **🆘 I'm alone**. All five steps complete by themselves.
 
-## Prototype limitations & roadmap
-
-- **Data is simulated.** Hospital names are real Bhopal-region landmarks, but coordinates are approximate and beds, duty rosters and equipment status are demo values. Production would integrate the **NHA Health Facility Registry**, hospital HMIS feeds and the **108 / Janani Express dispatch system (CAD)**.
-- Hospital acceptance is **simulated** when no console is open for that hospital, so the demo works on one screen.
-- ABHA integration (fetching records with patient consent via ABDM) instead of OCR-only.
-- IVR / missed-call + SMS channel for feature phones.
-- Train the predictive models on real historical 108 and hospital admission data.
-- Authentication for hospital staff, audit logs, and DPDP Act-compliant data retention.
+## Limitations & roadmap
+- Integrate the NHA Health Facility Registry, hospital HMIS feeds and the 108 CAD system (live mode).
+- ABHA consent-based record fetch (ABDM) instead of OCR-only.
+- IVR / missed-call channel for feature phones; SMS gateway for OTP and trusted-contact alerts.
+- Persistent encrypted database, key management and a formal DPDP Act 2023 impact assessment.
+- Clinical validation of the triage rules with emergency physicians.
 
 > ⚠️ Sehat Setu is a prototype and does not replace medical advice. In an emergency, always call **108**.
