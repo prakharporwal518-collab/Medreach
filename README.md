@@ -46,6 +46,12 @@ Optional Generative AI: `export ANTHROPIC_API_KEY=...` before `npm start`. Every
 
 ---
 
+## ☁️ Deploy on Render
+
+One click: **New → Blueprint** → select this repo. [`render.yaml`](render.yaml) sets the build and start commands, the health check and all environment variables. Only `ANTHROPIC_API_KEY` is asked for, and it's optional.
+Manual: **New → Web Service** with build command `npm ci`, start command `npm start`, health check `/api/config`, plus the variables in `render.yaml`. Render provides `PORT` itself.
+Keep it to **one instance**, because cases and live updates are held in memory. On the free plan the service sleeps after 15 minutes idle and forgets open cases when it restarts. That's fine for a demo; open the URL a minute before presenting.
+
 ## 🟨 Demo mode vs. real deployment (what is and isn't real)
 
 We state this plainly, in the app (yellow **DEMO** banner) and here:
