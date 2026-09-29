@@ -204,7 +204,7 @@ async function load(id) {
   renderForecast(data.forecast);
   renderCases();
   connect();
-  history.replaceState(null, '', `/hospital?id=${id}`);
+  try { history.replaceState(null, '', `/hospital?id=${id}`); } catch { /* e.g. embedded demo */ }
 }
 
 async function boot() {

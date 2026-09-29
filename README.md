@@ -96,6 +96,13 @@ Each box is one screen of the citizen app (`public/js/app.js`, steps 0 to 7).
 | `PATCH /api/hospitals/:id/status` | Hospital updates beds, ER status, specialists, equipment |
 | `GET /api/stream/case/:id` · `/api/stream/hospital/:id` | Real-time updates (SSE) |
 
+## See it instantly – one HTML file
+
+Download **[`demo/sehat-setu-prototype.html`](demo/sehat-setu-prototype.html)** and double-click it. There's no install and no server.
+It shows the citizen app in a phone frame next to the hospital console. Tick **"I'll act as the hospital desk"** to accept patients yourself, or untick it to let the ER desk be simulated.
+It runs the same app code and engines as the full version, with the backend running inside the page (offline AI rules; maps need internet).
+Rebuild it after changing code with `npm run build:demo`.
+
 ## Run it
 
 ```bash

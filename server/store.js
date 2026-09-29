@@ -10,7 +10,6 @@
 // Everything is in memory – enough for a prototype; production would use
 // Postgres + Redis pub/sub.
 
-import crypto from 'node:crypto';
 import { HOSPITALS, AMBULANCES } from './data/hospitals.js';
 import { roadKm, predictTravelMin } from '../shared/predict.js';
 
@@ -60,7 +59,7 @@ export function createStore({
 
   // ---------------------------------------------------------------- cases
   function createCase({ triage, location, patient = {}, contact = {}, lang = 'en', vision = null, text = '' }) {
-    const id = `SS-${crypto.randomBytes(3).toString('hex').toUpperCase()}`;
+    const id = `SS-${Array.from(globalThis.crypto.getRandomValues(new Uint8Array(3)), (b) => b.toString(16).padStart(2, '0')).join('').toUpperCase()}`;
     const c = {
       id, createdAt: now(), status: 'new', lang, text, triage, location, patient, contact, vision,
       hospitalId: null, bedType: null, etaMin: null, option: null, handover: null, bay: null,

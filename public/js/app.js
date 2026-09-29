@@ -702,7 +702,9 @@ async function boot() {
   $('#demoLocBtn').onclick = () => { $('#locStatus').textContent = state.config.demoLocation?.label || ''; setLocation(state.config.demoLocation, 'demo'); };
   $('#confirmLocBtn').onclick = findHospitals;
 
-  if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
+  try {
+    if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
+  } catch { /* not available, e.g. when opened as a local file */ }
 }
 
 boot();
