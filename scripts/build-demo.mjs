@@ -119,7 +119,7 @@ iframe { width: 100%; height: 100%; border: 0; display: block; }
 <body>
 <header>
   <img src="${iconUri}" alt="">
-  <div><h1>Sehat Setu – interactive prototype</h1><p>AI emergency → right hospital. Everything runs in this file; hospital data is simulated.</p></div>
+  <div><h1>Sehat Setu – interactive prototype</h1><p>Emergency → Understand → Match → Verify → Accept → Transport → Confirm. <b>Demo mode:</b> hospital data, SMS and ambulance dispatch are simulated.</p></div>
   <span class="spacer"></span>
   <label class="toggle" title="When on, admission requests go to the hospital console and wait for YOU to accept. When off, the ER desk is simulated.">
     <input type="checkbox" id="staffed"> I'll act as the hospital desk
@@ -167,15 +167,13 @@ iframe { width: 100%; height: 100%; border: 0; display: block; }
   document.getElementById('toastBtn').onclick = function () { show('desk'); document.getElementById('toast').classList.remove('show'); };
 
   var server = window.sehatServer;
-  // "Staffed" mode: point the console at the hospital being asked, so the request waits for you.
+  // "Staffed" mode: log the console in as the requested hospital's Emergency
+  // Desk Officer (real OTP flow, demo OTP), so the referral waits for YOU.
   server.hooks.beforeRequest = async function (hospitalId) {
     if (!staffed.checked) return;
-    var select = desk.contentDocument && desk.contentDocument.getElementById('hospitalSelect');
-    if (!select) return;
-    if (select.value !== hospitalId) {
-      select.value = hospitalId;
-      select.dispatchEvent(new Event('change'));
-    }
+    var consoleApi = desk.contentWindow && desk.contentWindow.sehatConsole;
+    if (!consoleApi) return;
+    try { await consoleApi.demoLogin(hospitalId, 'ED01'); } catch (e) { return; }
     for (var i = 0; i < 40 && server.store.listeners('hospital:' + hospitalId) === 0; i++) {
       await new Promise(function (r) { setTimeout(r, 50); });
     }
@@ -183,7 +181,7 @@ iframe { width: 100%; height: 100%; border: 0; display: block; }
   server.hooks.afterRequest = function (hospitalId, waitingForHuman) {
     if (!waitingForHuman) return;
     var h = server.store.getHospital(hospitalId);
-    toast('🔔 ' + h.name + ' received the request – accept it in the hospital console');
+    toast('🔔 ' + h.name + ' received the referral – you are logged in as its Emergency Desk Officer: accept it in the console');
   };
 })();
 </script>

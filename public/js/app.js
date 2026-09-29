@@ -1,13 +1,15 @@
 // Sehat Setu – citizen app. Each step below is one box of the flowchart:
 //
-//  0 🚨 Sudden emergency   – voice / text / quick chip (+ photo, + health card)
-//  1 🧠 AI understands     – type, severity, danger signs, first aid, follow-up question
+//  0 🚨 Sudden emergency   – voice / text / quick chip (+ photo, + health card) · 🆘 I'm alone
+//  1 🧠 AI understands     – AI/NLP extracts requirements (NOT a diagnosis)
 //  2 📍 Location           – GPS (started in the background at app launch)
-//  3 🏥 Suitable hospitals – capability + live status → distance + ETA → ranked options
-//  4 🏥 Hospital confirms  – real-time accept/decline, auto-escalates to the next option
-//  5 🚑 Transport          – 108 ambulance or own vehicle
-//  6 🗺️ Navigation         – road route, turn-by-turn, voice, live ambulance tracking
+//  3 🏥 Suitable hospitals – deterministic engine: capability + verified status → ETA → explained options
+//  4 🏥 Hospital confirms  – reported capacity ≠ referral accepted ≠ confirmed destination
+//  5 🚑 Transport          – ambulance request (simulated in prototype) or own vehicle
+//  6 🗺️ Navigation         – road route, turn-by-turn, voice, live tracking, family link
 //  7 🏥 Confirmed hospital – handover done
+//
+// USP: Emergency → Understand → Match → Verify → Accept → Transport → Confirm
 
 import { STRINGS, reasonText } from './i18n.js';
 import * as api from './api.js';
@@ -18,16 +20,17 @@ import { createMap, marker, route, pointAlong, ARROWS } from './map.js';
 import { EMERGENCIES, FOLLOW_UPS } from '/shared/triage.js';
 import { capLabel, CAPABILITIES } from '/shared/capabilities.js';
 import { haversineKm } from '/shared/predict.js';
+import { freshness, freshnessLabel, ago } from '/shared/freshness.js';
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-
-function storedLang() {
-  try { return localStorage.getItem('sehat.lang'); } catch { return null; }
-}
+const store = {
+  get(k) { try { return JSON.parse(localStorage.getItem(k)); } catch { return null; } },
+  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* private mode */ } },
+};
 
 const state = {
-  lang: storedLang() || (navigator.language?.startsWith('hi') ? 'hi' : 'en'),
+  lang: store.get('sehat.lang') || (navigator.language?.startsWith('hi') ? 'hi' : 'en'),
   step: 0,
   text: '',
   usedVoice: false,
@@ -36,6 +39,10 @@ const state = {
   photo: null,
   vision: null,
   patient: {},
+  consentDetails: false,
+  contact: store.get('sehat.contact'),
+  alone: false,
+  aloneDone: new Set(),
   triage: null,
   location: null,
   locationNote: '',
@@ -44,7 +51,9 @@ const state = {
   selected: null,
   tried: [],
   caseData: null,
+  trackToken: null,
   es: null,
+  hosES: null,
   handled: new Set(),
   transportMode: null,
   config: null,
@@ -52,6 +61,7 @@ const state = {
 
 const t = () => STRINGS[state.lang];
 const hName = (h) => (state.lang === 'hi' && h.nameHi ? h.nameHi : h.name);
+const time = (iso) => new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
 // ------------------------------------------------------------------ shell
 function applyI18n() {
@@ -62,8 +72,11 @@ function applyI18n() {
   }
   $('#describe').placeholder = t().describePh;
   for (const b of document.querySelectorAll('[data-lang]')) b.setAttribute('aria-pressed', String(b.dataset.lang === state.lang));
+  $('#privacyList').innerHTML = t().privacyPoints.map((p) => `<li>${esc(p)}</li>`).join('');
   renderChips();
+  renderContact();
   renderStepper();
+  renderAlonePanel();
 }
 
 function renderStepper() {
@@ -73,6 +86,7 @@ function renderStepper() {
 }
 
 function go(step) {
+  if (state.step === 3 && step !== 3) { state.hosES?.close(); state.hosES = null; }
   state.step = step;
   document.querySelectorAll('.step').forEach((s) => s.classList.toggle('hidden', s.id !== `step-${step}`));
   renderStepper();
@@ -83,15 +97,69 @@ function setOffline(off) { $('#offline').classList.toggle('hidden', !off); }
 window.addEventListener('online', () => setOffline(false));
 window.addEventListener('offline', () => setOffline(true));
 
+// ------------------------------------------------------------------ 🆘 I'm alone mode
+function aloneMark(key) {
+  if (!state.alone) return;
+  state.aloneDone.add(key);
+  renderAlonePanel();
+}
+
+function renderAlonePanel() {
+  const el = $('#alonePanel');
+  if (!state.alone) { el.classList.add('hidden'); return; }
+  const s = t();
+  el.classList.remove('hidden');
+  const items = [
+    ['location', s.aloneSteps.location],
+    ['contact', state.contact ? s.aloneSteps.contact(state.contact.name) : s.aloneSteps.noContact],
+    ['requested', s.aloneSteps.requested],
+    ['accepted', s.aloneSteps.accepted],
+    ['transport', s.aloneSteps.transport],
+  ];
+  el.innerHTML = `
+    <b>🆘 ${s.aloneBanner}</b>
+    <ul class="alone-list">${items.map(([k, label]) => `<li class="${state.aloneDone.has(k) ? 'done' : ''}">${state.aloneDone.has(k) ? '✅' : '⏳'} ${esc(label)}</li>`).join('')}</ul>`;
+}
+
+function startAlone() {
+  state.alone = true;
+  state.aloneDone.clear();
+  if (!state.text && !$('#describe').value.trim() && !state.hintType) state.hintType = 'general';
+  renderAlonePanel();
+  runTriage();
+}
+
+function renderContact() {
+  const s = t();
+  const c = state.contact;
+  $('#contactBox').innerHTML = c
+    ? `<p class="small">👤 ${esc(s.contactSaved(c.name))} (••••${esc(String(c.phone).slice(-4))}) <button class="linkish" id="editContact" type="button">${s.edit}</button></p>`
+    : `<div class="row">
+         <input id="cName" placeholder="${esc(s.contactName)}" class="inp grow">
+         <input id="cPhone" placeholder="${esc(s.contactPhone)}" class="inp grow" inputmode="tel">
+         <button class="btn" id="saveContact" type="button">${s.contactSave}</button>
+       </div><p class="small muted">${s.contactNote}</p>`;
+  $('#editContact')?.addEventListener('click', () => { state.contact = null; store.set('sehat.contact', null); renderContact(); });
+  $('#saveContact')?.addEventListener('click', () => {
+    const phone = $('#cPhone').value.replace(/[^\d+]/g, '');
+    if (phone.length < 10) { $('#cPhone').focus(); return; }
+    state.contact = { name: $('#cName').value.trim() || s.contactDefault, phone };
+    store.set('sehat.contact', state.contact);
+    renderContact();
+  });
+}
+
 // ------------------------------------------------------------------ 📍 start GPS immediately (saves precious seconds)
 function startGps() {
   if (!('geolocation' in navigator)) { state.gps = Promise.resolve({ error: 'unsupported' }); return; }
   state.gps = new Promise((resolve) => {
-    navigator.geolocation.getCurrentPosition(
-      (p) => resolve({ lat: p.coords.latitude, lng: p.coords.longitude, accuracy: Math.round(p.coords.accuracy) }),
-      (e) => resolve({ error: e.code === 1 ? 'denied' : 'unavailable' }),
-      { enableHighAccuracy: true, timeout: 12000, maximumAge: 60000 },
-    );
+    try {
+      navigator.geolocation.getCurrentPosition(
+        (p) => resolve({ lat: p.coords.latitude, lng: p.coords.longitude, accuracy: Math.round(p.coords.accuracy) }),
+        (e) => resolve({ error: e.code === 1 ? 'denied' : 'unavailable' }),
+        { enableHighAccuracy: true, timeout: 12000, maximumAge: 60000 },
+      );
+    } catch { resolve({ error: 'unavailable' }); }
   });
 }
 
@@ -132,7 +200,8 @@ async function onPhoto(file) {
   const tag = state.vision.engine === 'claude-vision' ? t().engineAi : t().heuristic;
   $('#photoResult').innerHTML = `
     <img class="thumb" src="${state.photo}" alt="">
-    <p><b>${t().photoFindings}</b> <span class="engine-badge">${esc(tag)}</span><br>${esc(state.vision.description || state.vision.findings.join('; '))}</p>`;
+    <p><b>${t().photoFindings}</b> <span class="engine-badge">${esc(tag)}</span><br>${esc(state.vision.description || state.vision.findings.join('; '))}</p>
+    <p class="small muted">${t().photoPrivacy}</p>`;
   // The findings are passed to triage as evidence (not as a forced choice), so
   // "accident" in the description still wins over "blood in the photo".
 }
@@ -171,12 +240,15 @@ function readPatientForm() {
   }
 }
 
+const hasPatientDetails = () => Object.entries(state.patient)
+  .some(([k, v]) => k !== 'fieldsFound' && (Array.isArray(v) ? v.length : v !== undefined && v !== ''));
+
 function selectChip(type) {
   state.hintType = state.hintType === type ? null : type;
   renderChips();
 }
 
-// ------------------------------------------------------------------ ② AI understands
+// ------------------------------------------------------------------ ② AI understands (requirements, not diagnosis)
 async function runTriage() {
   state.text = $('#describe').value.trim();
   if (!state.text && !state.hintType) { $('#describe').focus(); return; }
@@ -190,9 +262,12 @@ async function runTriage() {
       text, lang: state.lang, answers: state.answers, hintType: state.hintType,
       visionFindings: state.vision?.description ? `Photo shows: ${state.vision.description}` : '',
     });
+    // A person alone who can't describe much is at least a serious emergency.
+    if (state.alone && state.triage.severity === 'moderate') state.triage.severity = 'serious';
     if (state.triage.offline) setOffline(true);
     renderTriage();
-    if (state.usedVoice) speak([state.triage.label, ...state.triage.firstAid], state.lang);
+    if (state.usedVoice && !state.alone) speak([state.triage.label, ...state.triage.firstAid], state.lang);
+    if (state.alone) setTimeout(showLocation, 1200);
   } catch (e) {
     $('#step-1').innerHTML = `<div class="card"><p>${esc(e.message || t().genericError)}</p><button class="btn" id="backEdit">${t().notRight}</button></div>`;
     $('#backEdit').onclick = () => go(0);
@@ -202,21 +277,43 @@ async function runTriage() {
 function renderTriage() {
   const tr = state.triage;
   const s = t();
-  const qId = tr.followUps?.[0];
+  const qId = state.alone ? null : tr.followUps?.[0];
   const q = qId ? FOLLOW_UPS[qId] : null;
   const engine = tr.engine === 'claude' ? s.engineAi : s.engineRules;
+  const age = tr.patient?.isChild ? s.ageChild : tr.patient?.isElderly ? s.ageElderly : tr.patient?.age ? `${tr.patient.age}` : s.ageUnknown;
+  const cpr = tr.redFlags?.includes('not_breathing');
   $('#step-1').innerHTML = `
     <div class="card">
       <div class="row spread">
         <span class="engine-badge">🧠 ${esc(engine)}</span>
         <span class="small muted">${s.confidence} ${Math.round(tr.confidence * 100)}%</span>
       </div>
-      <div class="card-title" style="margin-top:.5rem"><span class="icon">${tr.icon}</span><h2>${esc(tr.label)}</h2></div>
+      <p class="small muted" style="margin:.6rem 0 .1rem">${s.mayIndicate}</p>
+      <div class="card-title"><span class="icon">${tr.icon}</span><h2 style="margin:0">${esc(tr.label)}</h2></div>
       <span class="sev ${tr.severity}">● ${s.severity[tr.severity]}</span>
       <div class="bar-meter" style="margin:.6rem 0" title="severity"><i style="width:${tr.severityScore}%;background:var(--${tr.severity})"></i></div>
       ${tr.redFlagLabels?.length ? `<p class="redflag">⚠️ ${s.redFlags}: ${tr.redFlagLabels.map(esc).join(', ')}</p>` : ''}
       <h3 class="small muted">${s.needs}</h3>
       <div class="cap-list">${tr.required.map((c) => `<span class="cap">${CAPABILITIES[c]?.icon || ''} ${esc(capLabel(c, state.lang))}</span>`).join('')}</div>
+      <p class="small muted" style="margin-top:.6rem">ℹ️ ${s.notDiagnosis}</p>
+      <details class="how">
+        <summary>🔍 ${s.howDecided}</summary>
+        <ol class="pipeline">
+          <li><b>${s.pipe1}</b> <span class="muted">(${esc(engine)})</span></li>
+          <li><b>${s.pipe2}</b>
+            <table class="kv">
+              <tr><td>${s.fieldType}</td><td>${esc(tr.label)}</td></tr>
+              <tr><td>${s.fieldSeverity}</td><td>${s.severity[tr.severity]}</td></tr>
+              <tr><td>${s.fieldFlags}</td><td>${tr.redFlagLabels?.length ? tr.redFlagLabels.map(esc).join(', ') : s.none}</td></tr>
+              <tr><td>${s.fieldAge}</td><td>${esc(age)}</td></tr>
+              <tr><td>${s.fieldCaps}</td><td>${tr.required.map((c) => esc(capLabel(c, state.lang))).join(', ')}</td></tr>
+            </table>
+          </li>
+          <li><b>${s.pipe3}</b></li>
+          <li><b>${s.pipe4}</b></li>
+        </ol>
+        <p class="small muted">${s.pipeNote}</p>
+      </details>
     </div>
 
     ${q ? `
@@ -224,15 +321,13 @@ function renderTriage() {
       <h3>💬 ${s.askNext}</h3>
       <p>${esc(q.q[state.lang])}</p>
       <div class="chips">${q.options.map((o) => `<button class="chip" data-answer="${qId}" data-value="${o.value}">${esc(o.label[state.lang])}</button>`).join('')}</div>
-    </div>` : tr.aiQuestion ? `<div class="card question"><h3>💬 ${s.askNext}</h3><p>${esc(tr.aiQuestion)}</p><p class="small muted">${s.notRight}</p></div>` : ''}
+    </div>` : !state.alone && tr.aiQuestion ? `<div class="card question"><h3>💬 ${s.askNext}</h3><p>${esc(tr.aiQuestion)}</p></div>` : ''}
 
-    <div class="card">
-      <div class="row spread">
-        <h2 style="margin:0">🩹 ${s.doNow}</h2>
-        <button class="btn ghost" id="readBtn" type="button">${isSpeaking() ? s.stopReading : s.readAloud}</button>
-      </div>
+    <details class="card safety" ${cpr || state.usedVoice ? 'open' : ''}>
+      <summary><b>🩹 ${s.safetySteps}</b><br><span class="small muted">${s.safetySub}</span></summary>
+      <div class="row" style="justify-content:flex-end"><button class="btn ghost" id="readBtn" type="button">${isSpeaking() ? s.stopReading : s.readAloud}</button></div>
       <ol class="firstaid">${tr.firstAid.map((x) => `<li>${esc(x)}</li>`).join('')}</ol>
-    </div>
+    </details>
 
     <div class="row" style="margin-top:1rem">
       <button class="btn ghost" id="editBtn" type="button">✏️ ${s.notRight}</button>
@@ -243,12 +338,13 @@ function renderTriage() {
   for (const b of document.querySelectorAll('[data-answer]')) {
     b.onclick = () => { state.answers[b.dataset.answer] = b.dataset.value; runTriage(); };
   }
-  $('#readBtn').onclick = () => {
+  $('#readBtn').onclick = (e) => {
+    e.preventDefault();
     if (isSpeaking()) { stopSpeaking(); $('#readBtn').textContent = s.readAloud; return; }
     $('#readBtn').textContent = s.stopReading;
     speak(tr.firstAid, state.lang).then(() => { const b = $('#readBtn'); if (b) b.textContent = s.readAloud; });
   };
-  $('#editBtn').onclick = () => { stopSpeaking(); go(0); };
+  $('#editBtn').onclick = () => { stopSpeaking(); state.alone = false; renderAlonePanel(); go(0); };
   $('#toLocBtn').onclick = () => showLocation();
 }
 
@@ -267,17 +363,16 @@ async function showLocation() {
   } else {
     setTimeout(() => locMap.invalidateSize(), 50);
   }
-  if (state.location) { setLocation(state.location, state.locationNote); return; }
-  const g = await state.gps;
-  if (g.error) {
-    $('#locStatus').textContent = s.locDenied;
-    setLocation(demo, 'demo');
-  } else if (haversineKm(g, demo) > 120) {
-    $('#locStatus').textContent = s.farAway;
-    setLocation(demo, 'demo');
+  if (!state.location) {
+    const g = await state.gps;
+    if (g.error) { $('#locStatus').textContent = s.locDenied; setLocation(demo, 'demo'); }
+    else if (haversineKm(g, demo) > 120) { $('#locStatus').textContent = s.farAway; setLocation(demo, 'demo'); }
+    else setLocation(g, 'gps');
   } else {
-    setLocation(g, 'gps');
+    setLocation(state.location, state.locationNote);
   }
+  aloneMark('location');
+  if (state.alone) setTimeout(findHospitals, 900);
 }
 
 function setLocation(pos, source) {
@@ -295,16 +390,46 @@ let hospMap = null;
 let hospLayer = null;
 let govtOnly = false;
 
-async function findHospitals() {
-  go(3);
-  const s = t();
-  $('#step-3').innerHTML = `<div class="card"><div class="spinner"></div><p style="text-align:center">${s.finding}</p></div>`;
+async function findHospitals({ silent = false } = {}) {
+  if (!silent) {
+    go(3);
+    $('#step-3').innerHTML = `<div class="card"><div class="spinner"></div><p style="text-align:center">${t().finding}</p></div>`;
+  }
+  const previous = state.selected?.hospital.id;
   state.match = await api.match({
     triage: state.triage, location: state.location, lang: state.lang, mode: 'ambulance', excludeIds: state.tried,
   });
   if (state.match.offline) setOffline(true);
-  state.selected = state.match.options[0] || state.match.stabilise || null;
+  const all = [...state.match.options, ...(state.match.stabilise ? [state.match.stabilise] : [])];
+  state.selected = (silent && all.find((o) => o.hospital.id === previous)) || state.match.options[0] || state.match.stabilise || null;
   renderHospitals();
+  if (!silent) watchHospitalUpdates();
+  if (state.alone && !silent && state.selected) setTimeout(() => requestHospital(state.selected), 1200);
+}
+
+// Live: when any hospital updates its dashboard, re-rank and tell the citizen.
+function watchHospitalUpdates() {
+  if (state.hosES || state.match?.offline) return;
+  let timer = null;
+  const changed = new Set();
+  try {
+    state.hosES = api.streamHospitals();
+    state.hosES.addEventListener('status', (e) => {
+      if (state.step !== 3) return;
+      changed.add(JSON.parse(e.data).id);
+      clearTimeout(timer);
+      timer = setTimeout(async () => {
+        const names = [...changed].map((id) => {
+          const o = [...state.match.options, ...state.match.excluded].find((x) => x.hospital.id === id);
+          return o ? hName(o.hospital) : id;
+        });
+        changed.clear();
+        await findHospitals({ silent: true });
+        const note = $('#liveNote');
+        if (note) { note.textContent = `🔄 ${t().liveUpdated(names.join(', '))}`; note.classList.remove('hidden'); }
+      }, 500);
+    });
+  } catch { /* live updates are a bonus */ }
 }
 
 function capChips(o) {
@@ -315,32 +440,41 @@ function capChips(o) {
   }).join('');
 }
 
+function freshBadge(f) {
+  const l = freshnessLabel(f, state.lang);
+  return `<span class="badge fresh-${f.level}" title="${esc(l.text)}">${l.icon} ${esc(l.text)}</span>`;
+}
+
 function hospitalCard(o, extraClass = '') {
   const s = t();
   const h = o.hospital;
   const selected = state.selected?.hospital.id === h.id;
+  const checklist = o.checklist || [];
   return `
     <article class="hosp ${extraClass}" data-id="${h.id}" aria-selected="${selected}" tabindex="0">
-      <div class="top">
-        <div>
-          <div class="row" style="gap:.3rem">
-            ${o.recommended ? `<span class="badge rec">★ ${s.recommended}</span>` : ''}
-            <span class="badge ${h.ownership === 'govt' ? 'govt' : ''}">${h.ownership === 'govt' ? s.govt : s.private}</span>
-            ${h.ayushman ? `<span class="badge pmjay">${s.pmjay}</span>` : ''}
-          </div>
-          <h3 style="margin-top:.3rem">${esc(hName(h))}</h3>
-          <div class="meta">${esc(h.area)} · ER: ${esc(o.erStatus)}</div>
-        </div>
-        <div class="score">${o.score}<small>match</small></div>
+      <div class="row" style="gap:.3rem">
+        ${o.recommended ? `<span class="badge rec">★ ${s.recommended}</span>` : ''}
+        <span class="badge ${h.ownership === 'govt' ? 'govt' : ''}">${h.ownership === 'govt' ? s.govt : s.private}</span>
+        ${h.ayushman ? `<span class="badge pmjay">${s.pmjay}</span>` : ''}
+        ${freshBadge(o.freshness)}
       </div>
+      <h3 style="margin-top:.35rem">${esc(hName(h))}</h3>
+      <div class="meta">${esc(h.area)}</div>
       <div class="kpis">
         <div class="kpi"><b>${o.etaMin}</b><span>${s.min} ${s.eta}</span></div>
-        <div class="kpi"><b>${o.distanceKm}</b><span>${s.km}</span></div>
-        <div class="kpi"><b>${Math.round(o.bed.probability * 100)}%</b><span>${o.bedType.toUpperCase()} ${s.bedProb}</span></div>
+        <div class="kpi"><b>${o.bed.freeNow}</b><span>${o.bedType.toUpperCase()} ${s.reported}</span></div>
+        <div class="kpi"><b>${o.capacityVerified ? `${Math.round(o.bed.probability * 100)}%` : '?'}</b><span>${s.bedProb}</span></div>
         <div class="kpi"><b>${o.erWaitMin}</b><span>${s.min} ${s.erWait}</span></div>
       </div>
-      <div class="cap-list">${capChips(o)}</div>
-      ${o.reasons ? `<ul class="reasons">${o.reasons.map((r) => `<li>${esc(r)}</li>`).join('')}</ul>` : ''}
+      <h4 class="why">${s.whyThis}</h4>
+      <ul class="checklist">${checklist.map((i) => `<li class="ck-${i.ok === true ? 'ok' : i.ok}">${i.icon} ${esc(i.text)}</li>`).join('')}</ul>
+      <div class="cap-list" style="margin-top:.4rem">${capChips(o)}</div>
+      <details class="score-details">
+        <summary>${s.scoreLabel(o.score)} · <span class="linkish">${s.scoreWhat}</span></summary>
+        <table class="kv">${(o.breakdown || []).map(([label, got, max]) => `<tr><td>${esc(label)}</td><td>${got}${max ? ` / ${max}` : ''}</td></tr>`).join('')}
+          <tr><td><b>${s.total}</b></td><td><b>${o.score} / 100</b></td></tr></table>
+        <p class="small muted">${s.scoreNote}</p>
+      </details>
     </article>`;
 }
 
@@ -349,6 +483,7 @@ function renderHospitals() {
   const m = state.match;
   const options = govtOnly ? m.options.filter((o) => o.hospital.ownership === 'govt' || o.hospital.ayushman) : m.options;
   const excluded = m.excluded.slice(0, 8);
+  const details = hasPatientDetails();
   $('#step-3').innerHTML = `
     <div class="card tight">
       <div class="row spread">
@@ -356,6 +491,8 @@ function renderHospitals() {
         <label class="small row" style="gap:.3rem"><input type="checkbox" id="govtOnly" ${govtOnly ? 'checked' : ''}> ${s.govtOnly}</label>
       </div>
       <p class="small muted">${state.triage.icon} ${esc(state.triage.label)} · <span class="sev ${state.triage.severity}">${s.severity[state.triage.severity]}</span></p>
+      <p class="small muted">${s.engineNote}</p>
+      <p id="liveNote" class="small live-note hidden" role="status"></p>
       <div id="hospMap" class="map"></div>
     </div>
     ${m.stabilise ? `
@@ -372,11 +509,15 @@ function renderHospitals() {
       <summary>${s.excludedTitle(excluded.length)}</summary>
       <ul>${excluded.map((e) => `<li><b>${esc(hName(e.hospital))}</b> (${e.etaMin} ${s.min}) – ${e.excludedBecause.map((r) => esc(reasonText(r, state.lang, capLabel))).join(', ')}</li>`).join('')}</ul>
     </details>` : ''}
+    <div class="card consent" style="margin-top:1rem">
+      <h3>🔒 ${s.consentTitle}</h3>
+      <p class="small">${s.consentLoc}</p>
+      ${details ? `<label class="small row" style="align-items:flex-start;gap:.5rem"><input type="checkbox" id="consentDetails" ${state.consentDetails ? 'checked' : ''}> <span>${s.consentDetails}</span></label>` : ''}
+    </div>
     <div style="position:sticky;bottom:1rem;margin-top:1rem">
       <button id="requestBtn" class="btn danger lg block" type="button" ${state.selected ? '' : 'disabled'}>🏥 ${s.requestAdmission}${state.selected ? ` – ${esc(hName(state.selected.hospital))}` : ''}</button>
     </div>`;
 
-  // Map with patient + hospitals
   if (hospMap) hospMap.remove();
   hospMap = createMap($('#hospMap'), state.location, 12);
   hospLayer = window.L.featureGroup().addTo(hospMap);
@@ -387,14 +528,16 @@ function renderHospitals() {
   if (hospLayer.getLayers().length > 1) hospMap.fitBounds(hospLayer.getBounds().pad(0.15));
 
   $('#govtOnly').onchange = (e) => { govtOnly = e.target.checked; renderHospitals(); };
+  $('#consentDetails')?.addEventListener('change', (e) => { state.consentDetails = e.target.checked; });
   for (const card of document.querySelectorAll('.hosp')) {
-    const pick = () => {
+    const pick = (e) => {
+      if (e.target.closest('details')) return; // opening the score breakdown shouldn't re-select
       const id = card.dataset.id;
       state.selected = [...m.options, m.stabilise].find((o) => o && o.hospital.id === id);
       renderHospitals();
     };
     card.onclick = pick;
-    card.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pick(); } };
+    card.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pick(e); } };
   }
   $('#requestBtn').onclick = () => requestHospital(state.selected);
 }
@@ -409,22 +552,32 @@ async function requestHospital(option) {
   try {
     if (!state.caseData) {
       readPatientForm();
+      const consent = { patientDetails: Boolean(state.consentDetails && hasPatientDetails()) };
       state.caseData = await api.createCase({
-        triage: state.triage, location: state.location, patient: state.patient, lang: state.lang,
+        triage: state.triage, location: state.location, lang: state.lang,
+        // Data minimisation: details only leave the phone with explicit consent.
+        patient: consent.patientDetails ? state.patient : {},
+        consent,
+        contact: state.contact,
+        alone: state.alone,
         vision: state.vision ? { engine: state.vision.engine, description: state.vision.description, findings: state.vision.findings } : null,
         text: state.text,
       });
+      state.trackToken = state.caseData.trackToken;
+      if (state.contact) aloneMark('contact');
       openStream(state.caseData.id);
     }
     const c = await api.requestAdmission(state.caseData.id, { hospitalId: option.hospital.id, option: stripOption(option) });
+    aloneMark('requested');
     onCaseUpdate(c);
   } catch (e) {
     // Offline or server unreachable: we cannot get a confirmation, so help the
-    // family act anyway – call 108 / call ahead and navigate.
+    // family act anyway – call 108 and go, clearly marked as NOT confirmed.
     $('#step-4').innerHTML = `
       <div class="card">
         <h2>📵 ${s.genericError}</h2>
         <p class="small">${esc(e.message)}</p>
+        <p class="small redflag">${s.notConfirmedWarn}</p>
         <div class="row">
           <a class="btn danger" href="tel:108">📞 ${s.call108}</a>
           <a class="btn" href="sms:108?body=${encodeURIComponent(smsText())}">✉️ ${s.smsLocation}</a>
@@ -445,6 +598,43 @@ function smsText() {
   return `EMERGENCY: ${state.triage?.label} (${state.triage?.severity}). Location: ${loc}`;
 }
 
+// Reported capacity → Referral status → Confirmed destination (never blurred together).
+function ladder(c) {
+  const s = t();
+  const o = state.selected;
+  const rc = c?.reportedCapacity;
+  const f = freshness(rc?.verifiedAt ?? o.hospital.status?.verifiedAt);
+  const fl = freshnessLabel(f, state.lang);
+  const src = (rc?.source ?? o.hospital.status?.source) === 'dashboard' ? s.srcDashboard : s.srcSimulated;
+  const by = rc?.verifiedBy?.roleLabel && rc.source === 'dashboard' ? ` · ${esc(rc.verifiedBy.roleLabel)}` : '';
+  const req = c?.requests?.at(-1);
+  const status = c?.status === 'requested' ? 'pending'
+    : ['accepted', 'enroute', 'arrived'].includes(c?.status) ? 'accepted'
+      : c?.status === 'declined' ? 'declined' : c?.status === 'timeout' ? 'timeout' : 'pending';
+  const confirmed = status === 'accepted';
+  const acc = c?.acceptedBy;
+  return `
+    <ol class="ladder">
+      <li class="lad-${f.verified ? 'ok' : 'warn'}">
+        <span class="lad-k">📊 ${s.ladderReported}</span>
+        <span class="lad-v">${(rc?.bedType || o.bedType).toUpperCase()}: ${rc?.free ?? o.bed.freeNow} ${s.bedsReported}</span>
+        <span class="lad-m">${fl.icon} ${esc(fl.text)} · ${esc(src)}${by}</span>
+        <span class="lad-m">${s.capacityNote}</span>
+      </li>
+      <li class="lad-${status === 'accepted' ? 'ok' : status === 'pending' ? 'wait' : 'bad'}">
+        <span class="lad-k">📨 ${s.ladderReferral}</span>
+        <span class="lad-v">${s.refStatus[status]}</span>
+        ${acc ? `<span class="lad-m">${s.by} ${esc(acc.roleLabel)}${acc.role !== 'simulated' && acc.name ? ` (${esc(acc.name)})` : ''} · ${time(c.acceptedAt)}</span>` : ''}
+        ${!acc && req?.reason ? `<span class="lad-m">${esc(req.reason)}</span>` : ''}
+      </li>
+      <li class="lad-${confirmed ? 'ok' : 'wait'}">
+        <span class="lad-k">📍 ${s.ladderDest}</span>
+        <span class="lad-v">${confirmed ? `${esc(hName(o.hospital))}` : s.notYet}</span>
+        ${confirmed && c.bay ? `<span class="lad-m">${s.receivingBay}: <b>${esc(c.bay)}</b></span>` : ''}
+      </li>
+    </ol>`;
+}
+
 function renderWaiting(note = '') {
   const s = t();
   const o = state.selected;
@@ -456,6 +646,7 @@ function renderWaiting(note = '') {
       <p class="small muted" style="text-align:center">${s.sentTo(esc(hName(o.hospital)))}</p>
       ${note ? `<p class="small" style="text-align:center;color:var(--serious)">${esc(note)}</p>` : ''}
     </div>
+    <div class="card" id="ladderBox">${ladder(state.caseData)}</div>
     <div class="card"><ul class="timeline"></ul></div>`;
   renderTimeline();
 }
@@ -466,6 +657,8 @@ function renderTimeline() {
   if (!el || !state.caseData) return;
   el.innerHTML = state.caseData.timeline.slice().reverse().map((e) =>
     `<li><time>${new Date(e.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</time>${esc(e.text)}</li>`).join('');
+  const lb = $(`#step-${state.step} #ladderBox`);
+  if (lb) lb.innerHTML = ladder(state.caseData);
 }
 
 function openStream(id) {
@@ -475,8 +668,8 @@ function openStream(id) {
   state.es.addEventListener('ambulance', (e) => onAmbulance(JSON.parse(e.data)));
 }
 
-function onCaseUpdate(c) {
-  state.caseData = c;
+async function onCaseUpdate(c) {
+  state.caseData = { ...c, trackToken: state.trackToken };
   renderTimeline();
   const key = `${c.status}:${c.requests.length}`;
   if (state.handled.has(key)) return;
@@ -484,16 +677,28 @@ function onCaseUpdate(c) {
   const current = c.requests.at(-1);
   if (c.status === 'accepted' && state.step === 4) {
     state.handled.add(key);
+    aloneMark('accepted');
     $('#step-4').innerHTML = `
       <div class="card confirm-ok">
         <div class="big-check">✅</div>
         <h2 style="text-align:center">${s.accepted}</h2>
         <p style="text-align:center"><b>${esc(hName(state.selected.hospital))}</b><br>${esc(s.bayReady(c.bay))}</p>
       </div>
+      <div class="card" id="ladderBox">${ladder(c)}</div>
       <div class="card"><ul class="timeline"></ul></div>`;
     renderTimeline();
     speak(`${s.accepted}. ${hName(state.selected.hospital)}. ${s.bayReady(c.bay)}`, state.lang);
-    setTimeout(showTransport, 1800);
+    if (state.alone) {
+      // Nobody to decide for them: request the ambulance automatically.
+      setTimeout(async () => {
+        state.transportMode = 'ambulance';
+        try { state.caseData = { ...(await api.startTransport(c.id, 'ambulance')), trackToken: state.trackToken }; } catch { /* keep going */ }
+        aloneMark('transport');
+        showNavigation();
+      }, 1500);
+    } else {
+      setTimeout(showTransport, 1800);
+    }
   } else if ((c.status === 'declined' || c.status === 'timeout') && state.step === 4) {
     state.handled.add(key);
     // 🔁 Auto-escalate to the next best hospital – the family never has to start over.
@@ -508,9 +713,9 @@ function onCaseUpdate(c) {
     } else {
       findHospitals();
     }
-  } else if (c.status === 'enroute' || c.status === 'arrived') {
-    if (c.status === 'arrived' && state.step !== 7) { state.handled.add(key); showArrived(); }
-    renderNavStatus();
+  } else if (c.status === 'arrived' && state.step !== 7) {
+    state.handled.add(key);
+    showArrived();
   }
 }
 
@@ -531,6 +736,7 @@ function showTransport() {
         <button class="choice ${ambulanceBetter ? 'rec' : ''}" data-mode="ambulance" type="button">
           <span class="emoji">🚑</span><b>${s.ambulance}</b>
           <span class="small">${tr.ambulanceType === 'JANANI' ? 'Janani Express' : tr.ambulanceType} · ${s.ownEta(o.etaMin)}</span>
+          <span class="badge sim">${s.simulatedTag}</span>
           ${ambulanceBetter ? `<p class="small" style="color:var(--brand)">★ ${s.ambRec}</p>` : ''}
         </button>
         <button class="choice ${!ambulanceBetter ? 'rec' : ''}" data-mode="own" type="button">
@@ -539,12 +745,14 @@ function showTransport() {
           ${!ambulanceBetter ? `<p class="small" style="color:var(--brand)">★ ${s.ownRec}</p>` : ''}
         </button>
       </div>
+      <p class="small muted" style="margin-top:.75rem">ℹ️ ${s.ambSimNote}</p>
+      <a class="btn danger block" href="tel:108" style="margin-top:.5rem">📞 ${s.call108Direct}</a>
     </div>`;
   for (const b of document.querySelectorAll('[data-mode]')) {
     b.onclick = async () => {
       state.transportMode = b.dataset.mode;
       b.disabled = true;
-      try { state.caseData = await api.startTransport(state.caseData.id, state.transportMode); } catch { /* keep navigating */ }
+      try { state.caseData = { ...(await api.startTransport(state.caseData.id, state.transportMode)), trackToken: state.trackToken }; } catch { /* keep navigating */ }
       showNavigation();
     };
   }
@@ -553,8 +761,14 @@ function showTransport() {
 // ------------------------------------------------------------------ ⑦ navigation
 let navMap = null;
 let ambMarker = null;
-let routes = {};
+const routes = {};
 let watchId = null;
+
+function trackUrl() {
+  if (!state.caseData || !state.trackToken) return '';
+  const origin = /^https?:/.test(location.origin) ? location.origin : 'https://sehat-setu.example';
+  return `${origin}/?track=${encodeURIComponent(state.caseData.id)}&t=${encodeURIComponent(state.trackToken)}`;
+}
 
 async function showNavigation() {
   go(6);
@@ -562,7 +776,7 @@ async function showNavigation() {
   const h = state.selected.hospital;
   const tr = state.caseData?.transport;
   const gmaps = `https://www.google.com/maps/dir/?api=1&destination=${h.lat},${h.lng}&travelmode=driving`;
-  const shareText = `🚑 Sehat Setu: ${state.triage.label} – going to ${h.name}${state.caseData ? ` (Case ${state.caseData.id})` : ''}. ${gmaps}`;
+  const share = `🚑 Sehat Setu: ${state.triage.label} – going to ${h.name}. ${s.liveStatus}: ${trackUrl() || gmaps}`;
   $('#step-6').innerHTML = `
     <div class="nav-banner" id="navBanner"><span class="arrow">⬆️</span><div><b id="navText">${esc(hName(h))}</b><span id="navSub" class="small"></span></div></div>
     <div class="card" style="margin-top:1rem">
@@ -575,9 +789,11 @@ async function showNavigation() {
       <div class="row" style="margin-top:.75rem">
         <button class="btn" id="voiceNavBtn" type="button">${s.voiceNav}</button>
         <a class="btn" href="${gmaps}" target="_blank" rel="noopener">🧭 ${s.openMaps}</a>
-        <a class="btn" href="https://wa.me/?text=${encodeURIComponent(shareText)}" target="_blank" rel="noopener">👨‍👩‍👧 ${s.shareFamily}</a>
+        <a class="btn" href="https://wa.me/${state.contact ? String(state.contact.phone).replace(/\D/g, '') : ''}?text=${encodeURIComponent(share)}" target="_blank" rel="noopener">👨‍👩‍👧 ${s.shareFamily}</a>
+        ${state.caseData ? `<button class="btn ghost" id="previewTrack" type="button">👁 ${s.trackPreview}</button>` : ''}
       </div>
     </div>
+    ${state.caseData ? `<div class="card" id="ladderBox">${ladder(state.caseData)}</div>` : `<div class="card"><p class="redflag small">${s.notConfirmedWarn}</p></div>`}
     <div class="card hidden" id="stepsCard"><ol class="steps-list" id="stepsList"></ol></div>
     <div class="card"><ul class="timeline"></ul></div>
     <button id="arrivedBtn" class="btn primary lg block" type="button" style="margin-top:1rem">✅ ${s.arrivedBtn}</button>`;
@@ -590,10 +806,17 @@ async function showNavigation() {
   marker(navMap, h, '🏥', esc(hName(h))).addTo(group);
   navMap.fitBounds(group.getBounds().pad(0.2));
 
+  $('#voiceNavBtn').onclick = () => speak(routes.toHospital?.steps.length ? routes.toHospital.steps.slice(0, 4).map((x) => `${x.text}, ${x.distance}`) : [hName(h)], state.lang);
+  $('#previewTrack')?.addEventListener('click', openTrackPreview);
+  $('#arrivedBtn').onclick = async () => {
+    if (state.caseData) { try { state.caseData = { ...(await api.markArrived(state.caseData.id)), trackToken: state.trackToken }; } catch { /* offline */ } }
+    showArrived();
+  };
+
   const main = await route(state.location, h, state.lang);
   routes.toHospital = main;
   window.L.polyline(main.coords, { color: '#0b7a75', weight: 6, opacity: 0.85 }).addTo(navMap);
-  if (main.fallback) $('#routeNote').classList.remove('hidden');
+  if (main.fallback) $('#routeNote')?.classList.remove('hidden');
   if (main.steps.length) {
     $('#stepsCard').classList.remove('hidden');
     $('#stepsList').innerHTML = main.steps.map((st) => `<li>${esc(st.text)} <span class="muted">· ${st.distance}</span></li>`).join('');
@@ -607,13 +830,6 @@ async function showNavigation() {
   } else {
     followOwnVehicle();
   }
-
-  $('#voiceNavBtn').onclick = () => speak(main.steps.length ? main.steps.slice(0, 4).map((x) => `${x.text}, ${x.distance}`) : [hName(h)], state.lang);
-  $('#arrivedBtn').onclick = async () => {
-    if (state.caseData) { try { state.caseData = await api.markArrived(state.caseData.id); } catch { /* offline */ } }
-    showArrived();
-  };
-  renderNavStatus();
 }
 
 function showStep(step) {
@@ -641,7 +857,7 @@ function onAmbulance(tr) {
   if (!tr || tr.mode !== 'ambulance' || state.step !== 6) return;
   const s = t();
   $('#etaBig').textContent = tr.etaMin;
-  $('#ambBadge').textContent = `🚑 ${tr.ambulance.id} · ${s.ambPhase[tr.phase] || ''}`;
+  $('#ambBadge').textContent = `🚑 ${tr.ambulance.id} (${s.simulatedTag}) · ${s.ambPhase[tr.phase] || ''}`;
   if (!ambMarker) return;
   let pt = [tr.position.lat, tr.position.lng];
   if (tr.phase === 'to_patient' && routes.toPatient && !routes.toPatient.fallback) pt = pointAlong(routes.toPatient.coords, tr.progress);
@@ -649,10 +865,6 @@ function onAmbulance(tr) {
   if (tr.phase === 'at_patient') pt = [state.location.lat, state.location.lng];
   ambMarker.setLatLng(pt);
   if (tr.phase === 'to_patient') $('#navSub').textContent = ` · ${s.ambOnWay(tr.ambulance.id, Math.max(0, tr.etaMin - (tr.etaToHospitalMin || 0) - 2))}`;
-}
-
-function renderNavStatus() {
-  renderTimeline();
 }
 
 // ------------------------------------------------------------------ ⑧ confirmed hospital
@@ -667,32 +879,87 @@ function showArrived() {
     <div class="card confirm-ok">
       <div class="big-check">🏥</div>
       <h2 style="text-align:center">${s.confirmedTitle}</h2>
-      <p style="text-align:center"><b style="font-size:1.2rem">${esc(hName(h))}</b><br>${esc(h.area)}${c?.bay ? `<br>${esc(c.bay)}` : ''}</p>
+      <p style="text-align:center"><b style="font-size:1.2rem">${esc(hName(h))}</b><br>${esc(h.area)}${c?.bay ? `<br>${s.receivingBay}: ${esc(c.bay)}` : ''}</p>
       <p class="small" style="text-align:center">${s.handedOver}</p>
       ${c ? `<p style="text-align:center">${s.caseId}: <b>${esc(c.id)}</b></p>` : ''}
+      <p class="small muted" style="text-align:center">🔒 ${s.retentionNote}</p>
     </div>
+    ${c ? `<div class="card" id="ladderBox">${ladder(c)}</div>` : ''}
     <div class="card"><ul class="timeline"></ul></div>
     <button class="btn block" id="newBtn" type="button" style="margin-top:1rem">${s.newEmergency}</button>`;
   renderTimeline();
   $('#newBtn').onclick = () => { state.es?.close(); location.reload(); };
 }
 
+// ------------------------------------------------------------------ 👨‍👩‍👧 trusted-contact tracking view (no medical details)
+function trackHtml(d) {
+  const s = t();
+  const steps = [
+    ['requested', s.trk.requested], ['accepted', s.trk.accepted], ['enroute', s.trk.enroute], ['arrived', s.trk.arrived],
+  ];
+  const order = ['new', 'requested', 'declined', 'timeout', 'accepted', 'enroute', 'arrived'];
+  const reached = (k) => order.indexOf(d.status) >= order.indexOf(k) && !(k === 'accepted' && ['declined', 'timeout'].includes(d.status));
+  return `
+    <div class="card">
+      <h2>👨‍👩‍👧 ${s.trackTitle}</h2>
+      <p class="small muted">${s.caseId} ${esc(d.id)} · ${d.alone ? `🆘 ${s.aloneTag} · ` : ''}${esc(d.emergency || '')}</p>
+      <ul class="alone-list">${steps.map(([k, label]) => `<li class="${reached(k) ? 'done' : ''}">${reached(k) ? '✅' : '⏳'} ${esc(label)}</li>`).join('')}</ul>
+      ${d.hospital ? `<p>🏥 <b>${esc(d.hospital.name)}</b> · ${esc(d.hospital.area)}${d.bay ? ` · ${s.receivingBay} ${esc(d.bay)}` : ''}</p>
+        <a class="btn" target="_blank" rel="noopener" href="https://www.google.com/maps/dir/?api=1&destination=${d.hospital.lat},${d.hospital.lng}">🧭 ${s.openMaps}</a>` : ''}
+      ${d.transport?.etaMin !== undefined ? `<p>🚑 ${d.transport.mode === 'ambulance' ? `${esc(d.transport.ambulance)} (${s.simulatedTag})` : s.ownVehicle} · ${s.eta} ${d.transport.etaMin} ${s.min}</p>` : ''}
+      <p class="small muted">🔒 ${s.trackNoMedical}</p>
+    </div>
+    <div class="card"><ul class="timeline">${d.timeline.slice().reverse().map((e) => `<li><time>${time(e.at)}</time>${esc(e.text)}</li>`).join('')}</ul></div>`;
+}
+
+async function openTrackPreview() {
+  const dlg = $('#trackDialog');
+  const body = $('#trackBody');
+  const refresh = async () => { try { body.innerHTML = trackHtml(await api.getTrack(state.caseData.id, state.trackToken)); } catch (e) { body.textContent = e.message; } };
+  await refresh();
+  const timer = setInterval(refresh, 2000);
+  dlg.addEventListener('close', () => clearInterval(timer), { once: true });
+  dlg.showModal();
+}
+
+async function bootTrackPage(id, token) {
+  document.querySelectorAll('.step, #stepper, #stepCaption').forEach((el) => el.classList.add('hidden'));
+  const box = $('#trackPage');
+  box.classList.remove('hidden');
+  const render = (d) => { box.innerHTML = trackHtml(d); };
+  try {
+    render(await api.getTrack(id, token));
+    const es = api.streamTrack(id, token);
+    es.addEventListener('case', (e) => render(JSON.parse(e.data)));
+  } catch (e) {
+    box.innerHTML = `<div class="card"><p>${esc(e.message)}</p></div>`;
+  }
+}
+
 // ------------------------------------------------------------------ boot
 async function boot() {
-  startGps();
   state.config = await api.getConfig();
-  if (state.config.offline || !navigator.onLine) setOffline(true);
-  api.hospitals(); // warm the offline cache
   applyI18n();
+  if (state.config.dataMode !== 'live') $('#demoBanner').classList.remove('hidden');
+  if (state.config.offline || !navigator.onLine) setOffline(true);
 
   for (const b of document.querySelectorAll('[data-lang]')) {
     b.onclick = () => {
       state.lang = b.dataset.lang;
-      try { localStorage.setItem('sehat.lang', state.lang); } catch { /* ignore */ }
+      store.set('sehat.lang', state.lang);
       applyI18n();
       if (state.step === 1 && state.triage) runTriage();
     };
   }
+  $('#privacyBtn').onclick = () => $('#privacyDialog').showModal();
+  for (const b of document.querySelectorAll('[data-close]')) b.onclick = () => b.closest('dialog').close();
+
+  const params = new URLSearchParams(location.search);
+  if (params.get('track')) { bootTrackPage(params.get('track'), params.get('t') || ''); return; }
+
+  startGps();
+  api.hospitals(); // warm the offline cache
+  $('#aloneBtn').onclick = startAlone;
   $('#micBtn').onclick = toggleMic;
   $('#chips').onclick = (e) => { const c = e.target.closest('[data-type]'); if (c) selectChip(c.dataset.type); };
   $('#photoInput').onchange = (e) => onPhoto(e.target.files[0]);
@@ -700,7 +967,7 @@ async function boot() {
   $('#helpBtn').onclick = runTriage;
   $('#describe').addEventListener('keydown', (e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) runTriage(); });
   $('#demoLocBtn').onclick = () => { $('#locStatus').textContent = state.config.demoLocation?.label || ''; setLocation(state.config.demoLocation, 'demo'); };
-  $('#confirmLocBtn').onclick = findHospitals;
+  $('#confirmLocBtn').onclick = () => findHospitals();
 
   try {
     if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});

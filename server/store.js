@@ -1,29 +1,51 @@
-// Sehat Setu – emergency case lifecycle, real-time events and simulations.
+// Sehat Setu – emergency case lifecycle, real-time events, audit and privacy.
 //
-//   new ──► requested ──► accepted ──► enroute ──► arrived
+//   new ──► requested ──► accepted ──► enroute ──► arrived ──► (patient data purged after retention)
 //               │
 //               ├──► declined  (client escalates to the next hospital)
 //               └──► timeout   (no answer in time → escalate)
 //
-// Real-time updates use Server-Sent Events (SSE): one channel per case (the
-// family's phone) and one per hospital (the ER console).
-// Everything is in memory – enough for a prototype; production would use
-// Postgres + Redis pub/sub.
+// Three different things are kept deliberately separate:
+//   1. REPORTED CAPACITY   – what hospital staff last entered on the dashboard (+ who, when)
+//   2. REFERRAL ACCEPTED   – a named staff member accepted THIS patient
+//   3. CONFIRMED DEST.     – accepted + receiving bay assigned; patient travels there
+//
+// Real-time updates use Server-Sent Events (SSE). Everything is in memory –
+// enough for a prototype; production would use Postgres (encrypted at rest)
+// + Redis pub/sub.
 
-import { HOSPITALS, AMBULANCES } from './data/hospitals.js';
+import { HOSPITALS, AMBULANCES, SEED_VERIFIED_MIN_AGO } from './data/hospitals.js';
 import { roadKm, predictTravelMin } from '../shared/predict.js';
+import { roleLabel } from '../shared/roles.js';
+
+const env = globalThis.process?.env ?? {};
+const randomHex = (bytes) => Array.from(globalThis.crypto.getRandomValues(new Uint8Array(bytes)),
+  (b) => b.toString(16).padStart(2, '0')).join('');
+const maskId = (id) => (id ? `••••${String(id).replace(/\W/g, '').slice(-4)}` : undefined);
+const maskPhone = (p) => (p ? `••••••${String(p).slice(-4)}` : undefined);
 
 export function createStore({
   hospitals = structuredClone(HOSPITALS),
   ambulances = structuredClone(AMBULANCES),
-  simulatedResponseMs = Number(process.env.SEHAT_SIM_RESPONSE_MS ?? 3500),
-  responseTimeoutMs = Number(process.env.SEHAT_RESPONSE_TIMEOUT_MS ?? 60000),
-  demoSpeed = Number(process.env.SEHAT_DEMO_SPEED ?? 15), // 1 real second = 15 simulated seconds
+  simulatedResponseMs = Number(env.SEHAT_SIM_RESPONSE_MS ?? 3500),
+  responseTimeoutMs = Number(env.SEHAT_RESPONSE_TIMEOUT_MS ?? 60000),
+  demoSpeed = Number(env.SEHAT_DEMO_SPEED ?? 15), // 1 real second = 15 simulated seconds
+  retentionMs = Number(env.SEHAT_RETENTION_MS ?? 24 * 60 * 60 * 1000), // purge patient details 24 h after arrival
+  seedVerified = true,
 } = {}) {
   const cases = new Map();
   const channels = new Map(); // channel -> Set<res>
   const timers = new Set();
+  const auditLog = [];
   for (const a of ambulances) { a.available = true; a.home = { lat: a.lat, lng: a.lng }; }
+
+  // Seed: demo data, verified N minutes ago by the "demo seed" (not a real person).
+  for (const h of hospitals) {
+    const mins = SEED_VERIFIED_MIN_AGO[h.id];
+    h.status.source = 'simulated';
+    h.status.verifiedBy = { name: 'Demo seed', role: 'simulated', roleLabel: 'Simulated data' };
+    h.status.verifiedAt = seedVerified && Number.isFinite(mins) ? new Date(Date.now() - mins * 60000).toISOString() : null;
+  }
 
   // ---------------------------------------------------------------- SSE hub
   function subscribe(channel, res) {
@@ -45,32 +67,86 @@ export function createStore({
   const getHospital = (id) => hospitals.find((h) => h.id === id);
   const now = () => new Date().toISOString();
 
-  function log(c, event, text) {
-    c.timeline.push({ at: now(), event, text });
-    publish(`case:${c.id}`, 'case', view(c));
-    if (c.hospitalId) publish(`hospital:${c.hospitalId}`, 'case', view(c));
+  // ---------------------------------------------------------------- audit trail
+  function audit(entry) {
+    const e = { at: now(), ...entry };
+    auditLog.push(e);
+    if (auditLog.length > 5000) auditLog.shift();
+    if (e.hospitalId) publish(`hospital:${e.hospitalId}`, 'audit', e);
+    return e;
+  }
+  const auditFor = (hospitalId) => auditLog.filter((e) => hospitalId === '*' || e.hospitalId === hospitalId).slice(-200).reverse();
+
+  // ---------------------------------------------------------------- views (who sees what)
+  // Citizen who created the case: everything except secrets & timers.
+  function view(c) {
+    const { responseTimer, accessToken, trackToken, ...rest } = c;
+    return rest;
+  }
+  // Receiving hospital: only what's needed for care; IDs masked; nothing without consent.
+  function hospitalView(c) {
+    const v = view(c);
+    const p = c.consent?.patientDetails ? c.patient || {} : {};
+    v.patient = { ...p, abhaId: maskId(p.abhaId), ayushmanId: maskId(p.ayushmanId), phone: undefined };
+    v.contact = undefined;
+    v.location = c.location ? { lat: Math.round(c.location.lat * 1000) / 1000, lng: Math.round(c.location.lng * 1000) / 1000 } : null;
+    v.text = undefined; // raw description stays with the family; the doctor gets the summary
+    return v;
+  }
+  // Trusted contact (family): status & destination only – no medical details.
+  function trackView(c) {
+    const h = c.hospitalId && getHospital(c.hospitalId);
+    return {
+      id: c.id,
+      status: c.status,
+      emergency: c.triage?.label,
+      severity: c.triage?.severity,
+      hospital: h && ['accepted', 'enroute', 'arrived'].includes(c.status) ? { name: h.name, area: h.area, lat: h.lat, lng: h.lng } : null,
+      bay: c.bay,
+      acceptedBy: c.acceptedBy ? { role: c.acceptedBy.roleLabel } : null,
+      transport: c.transport ? { mode: c.transport.mode, etaMin: c.transport.etaMin, phase: c.transport.phase, ambulance: c.transport.ambulance?.id } : null,
+      location: c.location,
+      timeline: c.timeline.map((e) => ({ at: e.at, text: e.public ?? e.text })),
+      alone: c.alone,
+    };
   }
 
-  // A trimmed view of the case that is safe to send to clients.
-  function view(c) {
-    const { responseTimer, ...rest } = c;
-    return rest;
+  function log(c, event, text, publicText) {
+    c.timeline.push({ at: now(), event, text, ...(publicText ? { public: publicText } : {}) });
+    publish(`case:${c.id}`, 'case', view(c));
+    publish(`track:${c.id}`, 'case', trackView(c));
+    if (c.hospitalId) publish(`hospital:${c.hospitalId}`, 'case', hospitalView(c));
   }
 
   // ---------------------------------------------------------------- cases
-  function createCase({ triage, location, patient = {}, contact = {}, lang = 'en', vision = null, text = '' }) {
-    const id = `SS-${Array.from(globalThis.crypto.getRandomValues(new Uint8Array(3)), (b) => b.toString(16).padStart(2, '0')).join('').toUpperCase()}`;
+  function createCase({ triage, location, patient = {}, contact = null, lang = 'en', vision = null, text = '', consent = {}, alone = false }) {
+    const id = `SS-${randomHex(3).toUpperCase()}`;
     const c = {
-      id, createdAt: now(), status: 'new', lang, text, triage, location, patient, contact, vision,
+      id, createdAt: now(), status: 'new', lang, text, triage, location,
+      // Data minimisation: patient details are only stored if the family consented to share them.
+      patient: consent.patientDetails ? patient : {},
+      consent: { patientDetails: Boolean(consent.patientDetails), location: true, at: now() },
+      contact: contact?.phone ? { name: contact.name || 'Trusted contact', phone: contact.phone } : null,
+      alone: Boolean(alone),
+      vision,
+      accessToken: randomHex(16), // for the citizen's device
+      trackToken: randomHex(12),  // read-only, limited view for the trusted contact
       hospitalId: null, bedType: null, etaMin: null, option: null, handover: null, bay: null,
+      acceptedBy: null, acceptedAt: null, reportedCapacity: null,
       requests: [], transport: null, timeline: [],
     };
     cases.set(id, c);
-    log(c, 'created', `Emergency reported: ${triage.label} (${triage.severity})`);
+    log(c, 'created', `Emergency reported: ${triage.label} (${triage.severity})${alone ? ' – person is ALONE' : ''}`);
+    if (c.contact) {
+      log(c, 'contact_notified',
+        `Trusted contact ${c.contact.name} (${maskPhone(c.contact.phone)}) notified with live tracking link (SMS simulated in prototype)`);
+    }
     return c;
   }
 
   const getCase = (id) => cases.get(id);
+  const checkCaseToken = (c, token) => Boolean(c && token && token === c.accessToken);
+  const checkTrackToken = (c, token) => Boolean(c && token && (token === c.trackToken || token === c.accessToken));
 
   function requestAdmission(caseId, { hospitalId, option, handover }) {
     const c = cases.get(caseId);
@@ -86,21 +162,28 @@ export function createStore({
     c.bedType = option?.bedType ?? 'emergency';
     c.etaMin = option?.etaMin ?? null;
     c.handover = handover ?? c.handover;
+    // Snapshot of REPORTED capacity at the moment of referral (not a guarantee).
+    const beds = h.status.beds[c.bedType] ?? { free: 0, total: 0 };
+    c.reportedCapacity = {
+      bedType: c.bedType, free: beds.free, total: beds.total,
+      verifiedAt: h.status.verifiedAt, verifiedBy: h.status.verifiedBy, source: h.status.source,
+    };
     const consoleOnline = listeners(`hospital:${hospitalId}`) > 0;
     c.requests.push({ hospitalId, at: now(), outcome: 'pending', simulated: !consoleOnline });
-    publish(`hospital:${hospitalId}`, 'request', view(c));
-    log(c, 'requested', `Admission request sent to ${h.name}`);
+    publish(`hospital:${hospitalId}`, 'request', hospitalView(c));
+    log(c, 'requested', `Referral request sent to ${h.name} – waiting for acceptance`);
 
     if (!consoleOnline) {
-      // No human at this hospital's console → simulate the ER desk so the demo
-      // works end-to-end on one screen. Decision is based on live bed status.
+      // No staff logged in at this hospital → simulate the ER desk so the demo
+      // works on one screen. Decision is based on reported bed status.
       later(() => {
         if (c.status !== 'requested' || c.hospitalId !== hospitalId) return;
         const bed = h.status.beds[c.bedType] ?? { free: 0 };
         const canTake = bed.free > 0 || (option?.bed?.probability ?? 0) >= 0.35;
+        const actor = { name: 'Simulated ER desk', role: 'simulated', roleLabel: 'Simulated Emergency Desk' };
         respond(caseId, hospitalId, canTake
-          ? { accept: true, note: 'Auto-confirmed by ER desk (simulated)', simulated: true }
-          : { accept: false, reason: `No ${c.bedType.toUpperCase()} bed free right now (simulated)`, simulated: true });
+          ? { accept: true, note: 'simulated – no staff logged in', actor }
+          : { accept: false, reason: `No ${c.bedType.toUpperCase()} bed free right now (simulated)`, actor });
       }, simulatedResponseMs);
     } else {
       c.responseTimer = later(() => {
@@ -113,7 +196,7 @@ export function createStore({
     return c;
   }
 
-  function respond(caseId, hospitalId, { accept, reason = '', bay = '', note = '', simulated = false }) {
+  function respond(caseId, hospitalId, { accept, reason = '', bay = '', note = '', actor = null }) {
     const c = cases.get(caseId);
     const h = getHospital(hospitalId);
     if (!c || !h) throw Object.assign(new Error('case or hospital not found'), { status: 404 });
@@ -121,17 +204,26 @@ export function createStore({
       throw Object.assign(new Error('no pending request for this hospital'), { status: 409 });
     }
     clearTimeout(c.responseTimer);
+    const who = actor ? { staffId: actor.staffId, name: actor.name, role: actor.role, roleLabel: actor.roleLabel || roleLabel(actor.role) } : null;
     const req = c.requests.at(-1);
     req.outcome = accept ? 'accepted' : 'declined';
     req.reason = reason;
     req.respondedAt = now();
-    req.simulated = simulated;
+    req.respondedBy = who;
+    req.simulated = actor?.role === 'simulated';
+    if (actor && actor.role !== 'simulated') {
+      audit({ ...actor, hospitalId, action: accept ? 'referral.accepted' : 'referral.declined', result: `${c.id}${reason ? ` – ${reason}` : ''}` });
+    }
     if (accept) {
       c.status = 'accepted';
+      c.acceptedBy = who;
+      c.acceptedAt = req.respondedAt;
       const beds = h.status.beds[c.bedType];
       if (beds && beds.free > 0) beds.free -= 1; // reserve the bed
-      c.bay = bay || `${c.bedType === 'icu' ? 'Resus' : c.bedType === 'labour' ? 'Labour room' : 'ER'} bay ${1 + Math.floor(Math.random() * 8)}`;
-      log(c, 'accepted', `${h.name} ACCEPTED – ${c.bay} is being prepared${note ? ` · ${note}` : ''}`);
+      c.bay = bay || `${c.bedType === 'icu' ? 'Resus' : c.bedType === 'labour' ? 'Labour room' : 'ER'}-${String(1 + Math.floor(Math.random() * 8)).padStart(2, '0')}`;
+      const by = who ? ` by ${who.roleLabel}${who.role !== 'simulated' ? ` (${who.name})` : ''}` : '';
+      log(c, 'accepted', `${h.name} ACCEPTED the referral${by} – receiving bay ${c.bay}${note ? ` · ${note}` : ''}`,
+        `${h.name} accepted – receiving bay ${c.bay}`);
       publish('hospitals', 'status', statusView(h));
     } else {
       c.status = 'declined';
@@ -140,14 +232,13 @@ export function createStore({
     return c;
   }
 
-  // ---------------------------------------------------------------- transport
+  // ---------------------------------------------------------------- transport (SIMULATED)
   function pickAmbulance(type, from) {
     const order = type === 'ALS' ? ['ALS', 'BLS'] : type === 'JANANI' ? ['JANANI', 'BLS', 'ALS'] : ['BLS', 'ALS', 'JANANI'];
     for (const t of order) {
       const pool = ambulances.filter((a) => a.available && a.type === t)
         .map((a) => ({ a, km: roadKm(from, a) }))
         .sort((x, y) => x.km - y.km);
-      // Accept a less-equipped vehicle only if it is much closer (<= 25 km) and nothing better is near.
       if (pool.length && (t === order[0] || pool[0].km <= 25)) return pool[0];
     }
     return null;
@@ -167,7 +258,7 @@ export function createStore({
     const pick = pickAmbulance(c.triage.ambulanceType, c.location);
     if (!pick) {
       c.transport = { mode: 'own', startedAt: now(), etaMin: c.etaMin, note: 'No ambulance free nearby' };
-      log(c, 'enroute', 'No ambulance free nearby – please use own vehicle; hospital is waiting');
+      log(c, 'enroute', 'No ambulance unit free nearby (simulated) – please use own vehicle or call 108; hospital is waiting');
       return c;
     }
     const amb = pick.a;
@@ -177,6 +268,7 @@ export function createStore({
     const toHospital = predictTravelMin(roadKm(c.location, h), { hour, mode: 'ambulance' }).minutes;
     c.transport = {
       mode: 'ambulance',
+      simulated: true,
       ambulance: { id: amb.id, type: amb.type, base: amb.base },
       phase: 'to_patient', progress: 0,
       position: { lat: amb.lat, lng: amb.lng },
@@ -186,7 +278,7 @@ export function createStore({
       demoSpeed,
       startedAt: now(),
     };
-    log(c, 'dispatched', `Ambulance ${amb.id} (${amb.type}) dispatched from ${amb.base} – reaching you in ~${toPatient} min`);
+    log(c, 'dispatched', `Ambulance request handed to control room (SIMULATED) – unit ${amb.id} (${amb.type}) from ${amb.base}, ~${toPatient} min away`);
     simulateAmbulance(c, amb, h);
     return c;
   }
@@ -211,6 +303,7 @@ export function createStore({
         if (t.progress >= 1) { arrive(c.id); return; }
       }
       publish(`case:${c.id}`, 'ambulance', t);
+      publish(`track:${c.id}`, 'case', trackView(c));
       publish(`hospital:${c.hospitalId}`, 'ambulance', { caseId: c.id, ...t });
       later(tick, 1000);
     };
@@ -224,6 +317,7 @@ export function createStore({
       c.transport.position = { lat, lng };
       if (Number.isFinite(etaMin)) c.transport.etaMin = etaMin;
       publish(`hospital:${c.hospitalId}`, 'position', { caseId, lat, lng, etaMin: c.transport.etaMin });
+      publish(`track:${c.id}`, 'case', trackView(c));
     }
     return c;
   }
@@ -233,6 +327,7 @@ export function createStore({
     if (!c) throw Object.assign(new Error('case not found'), { status: 404 });
     if (c.status === 'arrived') return c;
     c.status = 'arrived';
+    c.arrivedAt = now();
     const h = getHospital(c.hospitalId);
     if (c.transport?.mode === 'ambulance') {
       const amb = ambulances.find((a) => a.id === c.transport.ambulance.id);
@@ -242,7 +337,22 @@ export function createStore({
       c.transport.position = { lat: h.lat, lng: h.lng };
     }
     log(c, 'arrived', `Patient arrived at ${h?.name} – handed over to the emergency team`);
+    later(() => purge(caseId), retentionMs);
     return c;
+  }
+
+  // Retention policy: after the handover window, drop personal & health details.
+  function purge(caseId) {
+    const c = cases.get(caseId);
+    if (!c || c.purged) return;
+    c.patient = {};
+    c.text = '';
+    c.contact = null;
+    c.vision = null;
+    c.handover = c.handover ? { ...c.handover, text: '[purged after retention period]' } : null;
+    c.location = c.location ? { lat: Math.round(c.location.lat * 100) / 100, lng: Math.round(c.location.lng * 100) / 100 } : null;
+    c.purged = true;
+    log(c, 'purged', 'Personal and health details deleted as per retention policy');
   }
 
   // ---------------------------------------------------------------- hospitals
@@ -250,33 +360,57 @@ export function createStore({
     return { id: h.id, status: h.status, updatedAt: now() };
   }
 
-  function updateHospitalStatus(id, patch = {}) {
+  const BED_TYPES = ['icu', 'emergency', 'labour'];
+  /**
+   * Update a hospital's live status. `actor` is the authenticated staff member.
+   * Any update – even with no changes ("confirm figures are current") –
+   * re-verifies the data and stamps who verified it and when.
+   */
+  function updateHospitalStatus(id, patch = {}, actor = null) {
     const h = getHospital(id);
     if (!h) throw Object.assign(new Error('hospital not found'), { status: 404 });
     const s = h.status;
-    if (patch.erStatus && ['open', 'busy', 'diverting'].includes(patch.erStatus)) s.erStatus = patch.erStatus;
+    const changes = [];
+    const set = (label, before, after) => { if (before !== after) changes.push(`${label}: ${before} → ${after}`); };
+    if (patch.erStatus && ['open', 'busy', 'diverting'].includes(patch.erStatus)) { set('ER', s.erStatus, patch.erStatus); s.erStatus = patch.erStatus; }
     if (patch.beds) {
       for (const [type, v] of Object.entries(patch.beds)) {
-        if (!s.beds[type]) continue;
-        if (Number.isFinite(v.free)) s.beds[type].free = Math.max(0, Math.min(s.beds[type].total, Math.round(v.free)));
+        if (!BED_TYPES.includes(type) || !s.beds[type] || !Number.isFinite(v?.free)) continue;
+        const next = Math.max(0, Math.min(s.beds[type].total, Math.round(v.free)));
+        set(`${type.toUpperCase()} beds free`, s.beds[type].free, next);
+        s.beds[type].free = next;
       }
     }
-    if (Array.isArray(patch.onDuty)) s.onDuty = patch.onDuty.filter((c) => h.capabilities.includes(c));
-    if (Array.isArray(patch.equipmentDown)) s.equipmentDown = patch.equipmentDown.filter((c) => h.capabilities.includes(c));
-    if (Number.isFinite(patch.erQueue)) s.erQueue = Math.max(0, Math.round(patch.erQueue));
-    if (Number.isFinite(patch.ventilatorsFree)) s.ventilatorsFree = Math.max(0, Math.round(patch.ventilatorsFree));
-    s.updatedAt = now();
-    s.updatedBy = patch.updatedBy || 'hospital-console';
+    if (Array.isArray(patch.onDuty)) {
+      const next = patch.onDuty.filter((c) => h.capabilities.includes(c));
+      set('on duty', s.onDuty.join('+') || 'none', next.join('+') || 'none');
+      s.onDuty = next;
+    }
+    if (Array.isArray(patch.equipmentDown)) {
+      const next = patch.equipmentDown.filter((c) => h.capabilities.includes(c));
+      set('equipment down', s.equipmentDown.join('+') || 'none', next.join('+') || 'none');
+      s.equipmentDown = next;
+    }
+    if (Number.isFinite(patch.erQueue)) { const n = Math.max(0, Math.round(patch.erQueue)); set('ER queue', s.erQueue, n); s.erQueue = n; }
+    if (Number.isFinite(patch.ventilatorsFree)) { const n = Math.max(0, Math.round(patch.ventilatorsFree)); set('ventilators free', s.ventilatorsFree, n); s.ventilatorsFree = n; }
+    s.verifiedAt = now();
+    s.updatedAt = s.verifiedAt;
+    s.source = 'dashboard';
+    s.verifiedBy = actor
+      ? { staffId: actor.staffId, name: actor.name, role: actor.role, roleLabel: actor.roleLabel || roleLabel(actor.role) }
+      : { name: 'System', role: 'system', roleLabel: 'System' };
+    audit({ ...(actor || {}), hospitalId: id, action: changes.length ? 'status.updated' : 'status.verified', result: changes.join('; ') || 'figures confirmed current' });
     publish('hospitals', 'status', statusView(h));
     publish(`hospital:${id}`, 'status', statusView(h));
     return h;
   }
 
-  // Background random walk so bed counts and ER queues feel alive in a demo.
+  // Optional random walk (off by default): in the real system figures only
+  // change when authorised staff update them, so the demo keeps it off.
   function startStatusSimulation(intervalMs = 20000) {
     const step = () => {
       for (const h of hospitals) {
-        if (h.status.updatedBy === 'hospital-console') continue; // respect human edits
+        if (h.status.source === 'dashboard') continue;
         const s = h.status;
         const jiggle = (v, max) => Math.max(0, Math.min(max, v + (Math.random() < 0.5 ? -1 : 1) * (Math.random() < 0.35 ? 1 : 0)));
         for (const b of Object.values(s.beds)) b.free = jiggle(b.free, b.total);
@@ -296,7 +430,8 @@ export function createStore({
   return {
     hospitals, ambulances, cases,
     subscribe, publish, listeners,
-    createCase, getCase, requestAdmission, respond, startTransport, updatePosition, arrive,
-    getHospital, updateHospitalStatus, startStatusSimulation, stop, view,
+    createCase, getCase, checkCaseToken, checkTrackToken, requestAdmission, respond, startTransport, updatePosition, arrive, purge,
+    getHospital, updateHospitalStatus, startStatusSimulation, stop,
+    view, hospitalView, trackView, audit, auditFor,
   };
 }

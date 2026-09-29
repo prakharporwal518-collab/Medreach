@@ -157,7 +157,17 @@ export const HOSPITALS = [
   },
 ];
 
-// Simulated 108 / Janani Express fleet (MP's emergency transport services).
+// Minutes since each hospital's figures were last verified (seed for the demo),
+// so all three freshness levels are visible: 🟢 < 15 min, 🟡 15–60, 🔴 > 60.
+export const SEED_VERIFIED_MIN_AGO = {
+  'aiims-bpl': 3, hamidia: 28, sultania: 6, 'kamla-nehru': 9, 'jp-hospital': 22, bmhrc: 4, bansal: 2,
+  chirayu: 11, peoples: 190, 'narmada-trauma': 5, siddhanta: 35, 'civil-bairagarh': 80, 'chc-berasia': 140,
+  'dh-sehore': 12, 'dh-raisen': 47, 'gmc-vidisha': 8,
+};
+
+// SIMULATED ambulance fleet, modelled on MP's 108 / Janani Express services.
+// The prototype does NOT dispatch real 108 vehicles; in deployment the
+// transport layer hands requests to the authorised 108 control room (CAD).
 export const AMBULANCES = [
   { id: '108-ALS-01', type: 'ALS', base: 'Hamidia Road', lat: 23.2570, lng: 77.3990 },
   { id: '108-ALS-02', type: 'ALS', base: 'MP Nagar', lat: 23.2330, lng: 77.4340 },

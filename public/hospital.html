@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Sehat Setu – Hospital Console</title>
-  <meta name="description" content="Emergency desk console: receive AI pre-arrival alerts, accept patients and keep bed and specialist status live.">
+  <meta name="description" content="Emergency desk console: authorised staff receive referrals with an AI pre-arrival summary, accept patients and keep bed and specialist status verified.">
   <meta name="theme-color" content="#0b7a75">
   <link rel="icon" href="/icons/icon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans:wght@400;600;700;800&display=swap">
@@ -17,19 +17,60 @@
       <span>Sehat Setu <small>Hospital emergency console</small></span>
     </a>
     <span class="spacer"></span>
-    <label class="small row" style="gap:.35rem">🏥
-      <select id="hospitalSelect" aria-label="Hospital" style="max-width:240px;padding:.35rem;border-radius:8px;border:1px solid var(--line);background:var(--surface)"></select>
-    </label>
-    <span id="conn" class="badge" title="Live connection">● live</span>
+    <div id="whoami" class="whoami hidden"></div>
+    <span id="conn" class="badge hidden" title="Live connection">● live</span>
   </header>
+  <div id="demoBanner" class="demo-banner hidden" role="note"><b>DEMO</b> Hospitals, staff and figures are simulated. OTP is shown on screen because there is no SMS gateway in the prototype.</div>
 
-  <main class="console">
-    <p class="small muted">Keep this console open: incoming emergency requests appear here in real time with an AI pre-arrival summary. When no console is open for a hospital, the prototype simulates the ER desk's response.</p>
+  <!-- ─────────────── Staff login: Hospital ID + Staff ID + OTP ─────────────── -->
+  <main id="loginView" class="console">
+    <div class="card login-card">
+      <h2>🔐 Authorised staff login</h2>
+      <p class="small muted">Only authorised hospital staff can accept referrals or change what citizens see. Every action is audit-logged.</p>
+      <form id="loginForm" autocomplete="off">
+        <label>Hospital ID
+          <select id="hospitalId" class="inp" required></select>
+        </label>
+        <label>Staff ID
+          <input id="staffId" class="inp" placeholder="e.g. BANSAL-ED01" required>
+        </label>
+        <div id="quickLogin" class="hidden" style="margin:-.25rem 0 .75rem">
+          <span class="small muted">Demo staff for this hospital:</span>
+          <div class="quick-login" id="quickList"></div>
+        </div>
+        <button class="btn primary block" id="otpBtn" type="submit">Send OTP</button>
+      </form>
+      <form id="otpForm" class="hidden" autocomplete="one-time-code" style="margin-top:1rem">
+        <p class="small" id="otpSent"></p>
+        <p class="otp-demo hidden" id="otpDemo"></p>
+        <label>6-digit OTP
+          <input id="otp" class="inp" inputmode="numeric" maxlength="6" pattern="\d{6}" required>
+        </label>
+        <button class="btn primary block" type="submit">Verify & log in</button>
+      </form>
+      <p class="small redflag" id="loginError" role="alert"></p>
+      <details class="small"><summary>Roles & permissions</summary>
+        <table class="kv">
+          <tr><td>Hospital Nodal Officer</td><td>Everything for this hospital + audit log</td></tr>
+          <tr><td>Emergency Desk Officer</td><td>Accept / decline referrals, ER open/busy/diverting, confirm figures</td></tr>
+          <tr><td>Resource Manager</td><td>Beds, specialists on duty, equipment, confirm figures</td></tr>
+          <tr><td>State Health Admin</td><td>Read-only oversight of all hospitals + audit logs</td></tr>
+        </table>
+      </details>
+    </div>
+  </main>
+
+  <!-- ─────────────── Authorised dashboard ─────────────── -->
+  <main id="consoleView" class="console hidden">
+    <div class="row spread" style="margin-bottom:.5rem">
+      <h2 id="hospitalTitle" style="margin:0"></h2>
+      <select id="adminHospital" class="inp hidden" aria-label="Hospital (admin view)"></select>
+    </div>
     <div class="console-grid">
       <aside class="stack">
         <div class="card">
-          <div class="row spread"><h2 style="margin:0">Live status</h2><span id="updated" class="small muted"></span></div>
-          <p class="small muted">Patients are routed using exactly these numbers – keep them honest.</p>
+          <div class="row spread"><h2 style="margin:0">Live status</h2></div>
+          <div class="verified-line" id="verifiedLine"></div>
           <label class="small">Emergency department
             <select id="erStatus" style="width:100%;padding:.45rem;border-radius:8px;border:1px solid var(--line);background:var(--surface);margin:.25rem 0 .75rem">
               <option value="open">🟢 Open – accepting</option>
@@ -38,6 +79,8 @@
             </select>
           </label>
           <div class="stat-grid" id="beds"></div>
+          <button class="btn block" id="verifyBtn" type="button" style="margin-top:.75rem">✅ Confirm all figures are current</button>
+          <p class="small muted" style="margin:.4rem 0 0">Citizens see “Verified N min ago”. After 60 min without confirmation the app shows <b>availability unverified</b>.</p>
         </div>
         <div class="card">
           <h3>Specialists on duty now</h3>
@@ -54,14 +97,19 @@
         </div>
       </aside>
 
-      <section class="stack">
+      <section class="stack" id="casesCol">
         <div class="card">
-          <h2>🚨 Incoming requests</h2>
+          <h2>🚨 Incoming referral requests</h2>
           <div id="incoming"><p class="empty">No pending requests. Open the <a href="/" target="_blank">citizen app</a> in another tab to create one.</p></div>
         </div>
         <div class="card">
           <h2>🚑 Accepted & on the way</h2>
           <div id="active"><p class="empty">None yet.</p></div>
+        </div>
+        <div class="card hidden" id="auditCard">
+          <h2>🧾 Audit log</h2>
+          <p class="small muted">Who did what, when – logins, status changes, referral decisions, denied access attempts.</p>
+          <div class="audit-wrap"><table class="audit" id="audit"></table></div>
         </div>
         <div class="card">
           <h3>Recent</h3>

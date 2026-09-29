@@ -2,7 +2,7 @@
 // engines the server uses run right here in the browser.
 
 import { triage as localTriage } from '/shared/triage.js';
-import { rankHospitals, explain } from '/shared/matching.js';
+import { rankHospitals, explain, scoreBreakdown } from '/shared/matching.js';
 
 const HOSPITAL_CACHE_KEY = 'sehat.hospitals.v1';
 
@@ -50,14 +50,29 @@ export async function match(payload) {
     if (!isNetworkError(e)) throw e;
     const list = (await hospitals()).filter((h) => !(payload.excludeIds || []).includes(h.id));
     const out = rankHospitals(payload.triage, payload.location, list, { mode: payload.mode });
-    for (const o of [...out.options, ...(out.stabilise ? [out.stabilise] : [])]) o.reasons = explain(o, payload.lang);
+    for (const o of [...out.options, ...(out.stabilise ? [out.stabilise] : [])]) {
+      o.checklist = explain(o, payload.lang);
+      o.breakdown = scoreBreakdown(o, payload.lang);
+    }
     return { ...out, offline: true };
   }
 }
 
-export const createCase = (body) => json('/api/cases', { method: 'POST', body });
-export const requestAdmission = (id, body) => json(`/api/cases/${id}/request`, { method: 'POST', body });
-export const startTransport = (id, mode) => json(`/api/cases/${id}/transport`, { method: 'POST', body: { mode } });
-export const sendPosition = (id, body) => json(`/api/cases/${id}/position`, { method: 'POST', body }).catch(() => {});
-export const markArrived = (id) => json(`/api/cases/${id}/arrived`, { method: 'POST' });
-export const streamCase = (id) => new EventSource(`/api/stream/case/${id}`);
+// The case token is returned once when the case is created and proves this
+// device owns the case. It is kept in memory only.
+let caseToken = null;
+const withCase = (opts = {}) => ({ ...opts, headers: { ...(opts.headers || {}), 'X-Case-Token': caseToken || '' } });
+
+export async function createCase(body) {
+  const c = await json('/api/cases', { method: 'POST', body });
+  caseToken = c.accessToken;
+  return c;
+}
+export const requestAdmission = (id, body) => json(`/api/cases/${id}/request`, withCase({ method: 'POST', body }));
+export const startTransport = (id, mode) => json(`/api/cases/${id}/transport`, withCase({ method: 'POST', body: { mode } }));
+export const sendPosition = (id, body) => json(`/api/cases/${id}/position`, withCase({ method: 'POST', body })).catch(() => {});
+export const markArrived = (id) => json(`/api/cases/${id}/arrived`, withCase({ method: 'POST' }));
+export const streamCase = (id) => new EventSource(`/api/stream/case/${id}?t=${encodeURIComponent(caseToken || '')}`);
+export const streamHospitals = () => new EventSource('/api/stream/hospitals');
+export const getTrack = (id, t) => json(`/api/track/${encodeURIComponent(id)}?t=${encodeURIComponent(t)}`);
+export const streamTrack = (id, t) => new EventSource(`/api/stream/track/${encodeURIComponent(id)}?t=${encodeURIComponent(t)}`);

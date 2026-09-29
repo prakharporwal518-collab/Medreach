@@ -269,3 +269,76 @@ pre.sbar { white-space: pre-wrap; background: var(--surface-2); border-radius: 1
   .brand small { display: none; }
   .hero-title { font-size: 1.3rem; }
 }
+
+/* ================= Trust, safety & privacy components ================= */
+.demo-banner { background: var(--warn-soft); color: var(--ink); padding: .45rem 1rem; font-size: .82rem; border-bottom: 1px solid var(--line); }
+.demo-banner b { background: var(--serious); color: #fff; border-radius: 6px; padding: 0 .4rem; margin-right: .35rem; font-size: .75rem; letter-spacing: .04em; }
+.linkish { background: none; border: 0; padding: 0; color: var(--accent); text-decoration: underline; cursor: pointer; font: inherit; }
+.inp { border: 1px solid var(--line); border-radius: 10px; padding: .55rem .65rem; background: var(--surface); color: var(--ink); min-width: 0; }
+
+/* I'm alone */
+.alone-card { border: 2px solid var(--sos); }
+.btn.alone { background: var(--sos-soft); color: var(--sos); border: 2px solid var(--sos); font-weight: 800; }
+.btn.alone:hover { background: var(--sos); color: #fff; }
+.alone-panel { background: var(--sos-soft); border: 2px solid var(--sos); border-radius: var(--radius); padding: .75rem 1rem; margin-bottom: 1rem; }
+.alone-list { list-style: none; padding: 0; margin: .4rem 0 0; font-size: .9rem; }
+.alone-list li { padding: .15rem 0; color: var(--muted); }
+.alone-list li.done { color: var(--ink); font-weight: 600; }
+
+/* AI transparency */
+details.how { margin-top: .75rem; border-top: 1px dashed var(--line); padding-top: .5rem; }
+details.how summary, details.score-details summary, details.contact summary { cursor: pointer; font-weight: 600; font-size: .9rem; }
+.pipeline { padding-left: 1.1rem; font-size: .88rem; }
+.pipeline li { margin: .35rem 0; }
+table.kv { width: 100%; border-collapse: collapse; font-size: .82rem; margin: .35rem 0; }
+table.kv td { border-bottom: 1px solid var(--line); padding: .25rem .35rem; vertical-align: top; }
+table.kv td:first-child { color: var(--muted); width: 48%; }
+details.safety summary { cursor: pointer; list-style: none; }
+details.safety summary::-webkit-details-marker { display: none; }
+details.safety summary::after { content: " ▾"; color: var(--muted); }
+
+/* Hospital cards: "why this hospital?" */
+.why { margin: .6rem 0 .25rem; font-size: .9rem; }
+.checklist { list-style: none; padding: 0; margin: 0; font-size: .86rem; }
+.checklist li { padding: .12rem 0; }
+.checklist .ck-warn { color: var(--serious); }
+.checklist .ck-pending, .checklist .ck-info { color: var(--muted); }
+details.score-details { margin-top: .5rem; font-size: .85rem; }
+.badge.fresh-fresh { background: var(--ok-soft); color: var(--ink); }
+.badge.fresh-aging { background: var(--warn-soft); color: var(--ink); }
+.badge.fresh-stale { background: var(--sos-soft); color: var(--ink); }
+.badge.sim { background: var(--warn-soft); color: var(--ink); margin: .3rem 0; }
+.live-note { background: var(--brand-soft); border-radius: 8px; padding: .35rem .6rem; }
+.consent { border-left: 4px solid var(--accent); }
+
+/* Reported capacity → referral → confirmed destination */
+.ladder { list-style: none; padding: 0; margin: 0; }
+.ladder li { display: flex; flex-direction: column; gap: .1rem; padding: .55rem .7rem; border-left: 4px solid var(--line); margin: .35rem 0; background: var(--surface-2); border-radius: 0 10px 10px 0; }
+.ladder .lad-ok { border-left-color: var(--ok); }
+.ladder .lad-warn { border-left-color: var(--serious); }
+.ladder .lad-wait { border-left-color: var(--muted); }
+.ladder .lad-bad { border-left-color: var(--critical); }
+.lad-k { font-size: .75rem; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); font-weight: 700; }
+.lad-v { font-weight: 700; }
+.lad-m { font-size: .8rem; color: var(--ink-2); }
+
+/* Dialogs */
+.dialog { border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); color: var(--ink); max-width: min(560px, calc(100vw - 32px)); padding: 1.25rem; }
+.dialog.wide { max-width: min(640px, calc(100vw - 32px)); width: 100%; }
+.dialog::backdrop { background: rgba(10, 16, 28, .55); }
+.dialog ul { padding-left: 1.1rem; }
+.dialog li { margin: .35rem 0; }
+
+/* Hospital console: login & audit */
+.login-card { max-width: 460px; margin: 2rem auto; }
+.login-card label { display: flex; flex-direction: column; gap: .2rem; font-size: .85rem; color: var(--muted); margin-bottom: .6rem; }
+.login-card .inp, .login-card select { width: 100%; }
+.otp-demo { background: var(--warn-soft); border-radius: 10px; padding: .5rem .7rem; font-size: .88rem; }
+.quick-login { display: flex; flex-wrap: wrap; gap: .35rem; }
+.whoami { display: flex; align-items: center; gap: .5rem; font-size: .85rem; }
+.whoami .role { background: var(--brand-soft); border-radius: 999px; padding: .1rem .55rem; font-weight: 700; }
+.audit { width: 100%; border-collapse: collapse; font-size: .78rem; }
+.audit td, .audit th { border-bottom: 1px solid var(--line); padding: .3rem .35rem; text-align: left; vertical-align: top; }
+.audit-wrap { max-height: 260px; overflow: auto; }
+.verified-line { font-size: .82rem; background: var(--surface-2); border-radius: 10px; padding: .45rem .6rem; margin: .5rem 0; }
+button:disabled, .stepper-btns button:disabled, .chip:disabled { opacity: .45; cursor: not-allowed; }

@@ -18,7 +18,7 @@
         this.onopen?.();
         this.unsubscribe = server.stream(url, (event, data) => {
           for (const fn of this.listeners[event] || []) fn({ data });
-        });
+        }, () => this.onerror?.());
       }, 0);
     }
     addEventListener(event, fn) { (this.listeners[event] ||= []).push(fn); }
