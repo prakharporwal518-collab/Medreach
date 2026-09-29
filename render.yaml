@@ -1,0 +1,32 @@
+# Render Blueprint – https://render.com/docs/blueprint-spec
+# New → Blueprint → pick this repo. Render will ask for ANTHROPIC_API_KEY (optional; leave empty to run without Claude).
+services:
+  - type: web
+    name: sehat-setu
+    runtime: node
+    plan: free
+    region: singapore          # closest Render region to India
+    buildCommand: npm ci
+    startCommand: npm start
+    healthCheckPath: /api/config
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      # 'demo' = simulated hospital data, OTP shown on screen (no SMS gateway).
+      # Keep 'demo' for the hackathon: in 'live' mode the OTP is never shown, so nobody can log in without an SMS gateway.
+      - key: SEHAT_DATA_MODE
+        value: demo
+      - key: SEHAT_DEMO_SPEED
+        value: "15"
+      - key: SEHAT_SIM_RESPONSE_MS
+        value: "3500"
+      - key: SEHAT_RESPONSE_TIMEOUT_MS
+        value: "60000"
+      - key: SEHAT_RETENTION_MS
+        value: "86400000"
+      - key: SEHAT_AI_TIMEOUT_MS
+        value: "15000"
+      # Optional Generative AI. Set in the Render dashboard (secret), never commit it.
+      - key: ANTHROPIC_API_KEY
+        sync: false
