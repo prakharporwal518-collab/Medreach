@@ -1,0 +1,29 @@
+{
+  "name": "sehat-setu",
+  "version": "1.0.0",
+  "description": "Sehat Setu – AI-powered emergency healthcare bridge: understands the emergency, finds the right hospital that can treat it right now, gets acceptance and guides the patient there.",
+  "type": "module",
+  "main": "server/index.js",
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "node --watch server/index.js",
+    "test": "node --test tests/*.test.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "keywords": [
+    "healthcare",
+    "emergency",
+    "govtech",
+    "ai",
+    "hackathon",
+    "madhya-pradesh"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.129.0",
+    "express": "^5.2.1",
+    "leaflet": "^1.9.4"
+  }
+}
