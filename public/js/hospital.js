@@ -1,4 +1,4 @@
-// Sehat Setu – hospital staff dashboard (authorised staff only).
+// Medreach – hospital staff dashboard (authorised staff only).
 //
 //   Session: Hospital ID + Staff ID + OTP (server) → bound to ONE hospital, kept per tab
 //   Roles:   Nodal Officer · Emergency Desk · Resource Manager · State Admin (read-only)

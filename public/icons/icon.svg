@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
   <rect width="512" height="512" rx="112" fill="#0b7a75"/>
-  <!-- bridge arc (setu) -->
+  <!-- bridge arc: reaching the right hospital -->
   <path d="M72 356 C 160 210, 352 210, 440 356" fill="none" stroke="#ffffff" stroke-width="30" stroke-linecap="round"/>
   <path d="M136 356 V 300 M200 356 V 268 M256 356 V 260 M312 356 V 268 M376 356 V 300" stroke="#ffffff" stroke-width="16" stroke-linecap="round" opacity=".7"/>
   <!-- medical cross -->

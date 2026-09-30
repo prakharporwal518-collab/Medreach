@@ -1,7 +1,7 @@
 {
-  "name": "sehat-setu",
+  "name": "medreach",
   "version": "1.0.0",
-  "description": "Sehat Setu – AI-powered emergency healthcare bridge: understands the emergency, finds the right hospital that can treat it right now, gets acceptance and guides the patient there.",
+  "description": "Medreach – AI-powered emergency healthcare bridge: understands the emergency, finds the right hospital that can treat it right now, gets acceptance and guides the patient there.",
   "type": "module",
   "main": "server/index.js",
   "scripts": {

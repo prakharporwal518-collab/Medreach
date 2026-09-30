@@ -36,7 +36,7 @@ function render() {
     $('#registerForm').classList.toggle('hidden', !reg);
     $('#authFoot').innerHTML = reg
       ? 'Already have an account? <a href="#" id="swap">Sign in</a>'
-      : 'New to Sehat Setu? <a href="#" id="swap">Create an account</a>';
+      : 'New to Medreach? <a href="#" id="swap">Create an account</a>';
     $('#swap').onclick = (e) => { e.preventDefault(); citizenMode = reg ? 'signin' : 'register'; render(); };
   } else {
     $('#title').textContent = role === 'staff' ? 'Hospital Staff Sign in' : 'Health Admin Sign in';

@@ -1,4 +1,4 @@
-// Sehat Setu – emergency case lifecycle, real-time events, audit and privacy.
+// Medreach – emergency case lifecycle, real-time events, audit and privacy.
 //
 //   new ──► requested ──► accepted ──► enroute ──► arrived ──► (patient data purged after retention)
 //               │

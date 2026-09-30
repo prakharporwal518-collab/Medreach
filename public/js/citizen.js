@@ -1,4 +1,4 @@
-// Sehat Setu – citizen dashboard.
+// Medreach – citizen dashboard.
 // Reads public hospital status from the API and the citizen's OWN data from
 // this device only (profile, health records, contacts, cases). A citizen can
 // follow only the cases raised from this device, through the read-only
@@ -314,7 +314,7 @@ function viewHome() {
           <div class="list-row link" data-go="cases"><span class="l-ico">${icon('file')}</span><div class="l-main"><b>My Cases</b><small>View your reported cases</small></div>${icon('right', 'sm')}</div>
           <div class="list-row link" data-go="records"><span class="l-ico">${icon('records')}</span><div class="l-main"><b>Health Records</b><small>Blood group, allergies, conditions</small></div>${icon('right', 'sm')}</div>
           <div class="list-row link" data-go="contacts"><span class="l-ico">${icon('users')}</span><div class="l-main"><b>Emergency Contacts</b><small>Save and manage contacts</small></div>${icon('right', 'sm')}</div>
-          <div class="list-row link" data-go="help"><span class="l-ico">${icon('help')}</span><div class="l-main"><b>Help &amp; Support</b><small>How Sehat Setu works</small></div>${icon('right', 'sm')}</div>
+          <div class="list-row link" data-go="help"><span class="l-ico">${icon('help')}</span><div class="l-main"><b>Help &amp; Support</b><small>How Medreach works</small></div>${icon('right', 'sm')}</div>
         </div>
       </div>
 
@@ -344,7 +344,7 @@ function viewHome() {
       <div style="display:flex;flex-direction:column;gap:1rem">
         <div class="panel">
           <h3>Need help?</h3>
-          <p class="small muted">Learn how Sehat Setu works, or call 108 for life-threatening emergencies.</p>
+          <p class="small muted">Learn how Medreach works, or call 108 for life-threatening emergencies.</p>
           <div class="row"><button class="b" data-go="help">${icon('help', 'sm')} Help &amp; Support</button><a class="b danger" href="tel:108">${icon('phone', 'sm')} 108</a></div>
         </div>
         <div class="panel" style="background:var(--primary-soft)">
@@ -449,7 +449,7 @@ function viewAmbulance() {
         <div class="row" style="flex-wrap:nowrap;align-items:center;gap:1.2rem">
           <img src="/img/ambulance.svg" alt="" style="width:220px;max-width:40%">
           <div><h2>Life-threatening emergency?</h2><p class="muted">Call 108 – free, 24×7 government ambulance service. Janani Express is available for pregnancy.</p>
-          <div class="row"><a class="b danger lg" href="tel:108">${icon('phone')} Call 108 now</a><button class="b lg" data-go="emergency">${icon('siren')} Request through Sehat Setu</button></div></div>
+          <div class="row"><a class="b danger lg" href="tel:108">${icon('phone')} Call 108 now</a><button class="b lg" data-go="emergency">${icon('siren')} Request through Medreach</button></div></div>
         </div>
       </div>
       <div class="panel">
@@ -460,7 +460,7 @@ function viewAmbulance() {
           <li>Choose <b>Request ambulance</b></li>
           <li>Track the ambulance live; your family gets a link</li>
         </ol>
-        <p class="note-box small">Prototype: ambulance dispatch is <b>simulated</b>. In deployment the request is handed to the authorised 108 control room – Sehat Setu does not control 108 itself.</p>
+        <p class="note-box small">Prototype: ambulance dispatch is <b>simulated</b>. In deployment the request is handed to the authorised 108 control room – Medreach does not control 108 itself.</p>
       </div>
     </div>
     <div class="panel">
@@ -555,11 +555,11 @@ function viewProfile() {
 function viewHelp() {
   const faq = [
     ['Do I need to log in during an emergency?', 'No. Tap “Report Emergency” on the home page – it works without an account. Logging in only pre-fills your health details and contacts.'],
-    ['How does Sehat Setu choose a hospital?', 'AI understands your description and works out what care is needed. A transparent rule-based engine then picks hospitals that have that service live now, using figures verified by hospital staff. The hospital must accept before you travel.'],
+    ['How does Medreach choose a hospital?', 'AI understands your description and works out what care is needed. A transparent rule-based engine then picks hospitals that have that service live now, using figures verified by hospital staff. The hospital must accept before you travel.'],
     ['Is the bed count guaranteed?', 'No – it is “reported capacity” with the time it was verified. Only an accepted referral with a receiving bay is a confirmed destination.'],
     ['Can hospitals see my health records?', 'Only if you tick consent when raising an emergency, and only the hospital your referral goes to. ID numbers are masked.'],
     ['What does “I’m alone” do?', 'One tap shares your location, notifies your primary contact, requests a hospital and then an ambulance automatically.'],
-    ['Does Sehat Setu send the 108 ambulance?', 'In this prototype the ambulance is simulated. In deployment the request is handed to the authorised 108 control room. You can always call 108 directly.'],
+    ['Does Medreach send the 108 ambulance?', 'In this prototype the ambulance is simulated. In deployment the request is handed to the authorised 108 control room. You can always call 108 directly.'],
   ];
   return `
     <div class="page-head"><h1>Help &amp; Support</h1><p>Answers to common questions.</p></div>
@@ -585,7 +585,7 @@ function viewEmergency() {
       <div><h1>${icon('mic', 'lg')} Emergency App</h1><p>Tap the red mic and speak in Hindi or English – or type. AI understands, finds a hospital that can treat you now and gets it to accept you. Your saved health details are pre-filled (shared only if you tick consent).</p></div>
       <div class="row"><a class="b" href="/report${hash}" target="_blank" rel="noopener">${icon('arrow', 'sm')} Open full screen</a><a class="b danger" href="tel:108">${icon('phone', 'sm')} 108</a></div>
     </div>
-    <div class="app-frame"><iframe id="appFrame" title="Sehat Setu emergency app" src="/report?embed=1${hash}" allow="geolocation; microphone; camera"></iframe></div>`;
+    <div class="app-frame"><iframe id="appFrame" title="Medreach emergency app" src="/report?embed=1${hash}" allow="geolocation; microphone; camera"></iframe></div>`;
 }
 
 const VIEWS = { emergency: viewEmergency, home: viewHome, cases: viewCases, hospitals: viewHospitals, ambulance: viewAmbulance, records: viewRecords, contacts: viewContacts, profile: viewProfile, help: viewHelp };

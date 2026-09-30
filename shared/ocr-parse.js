@@ -1,4 +1,4 @@
-// Sehat Setu – turn raw OCR text from an Ayushman card, ABHA card,
+// Medreach – turn raw OCR text from an Ayushman card, ABHA card,
 // prescription or old discharge summary into structured patient details the
 // emergency doctor needs *before* the patient arrives.
 

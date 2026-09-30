@@ -21,7 +21,7 @@ async function stats() {
     document.getElementById('sDocs').textContent = docs;
     document.getElementById('sFresh').textContent = `${fresh}/${hospitals.length}`;
     if (config.dataMode === 'demo') {
-      document.getElementById('statsNote').textContent = 'Live from the Sehat Setu network · DEMO MODE: hospital figures are simulated for the prototype.';
+      document.getElementById('statsNote').textContent = 'Live from the Medreach network · DEMO MODE: hospital figures are simulated for the prototype.';
     }
   } catch {
     document.getElementById('statsNote').textContent = 'Network status unavailable offline – you can still report an emergency.';

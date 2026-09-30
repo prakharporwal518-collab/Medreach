@@ -1,4 +1,4 @@
-// Sehat Setu – find the RIGHT hospital, not just the nearest one.
+// Medreach – find the RIGHT hospital, not just the nearest one.
 //
 //   AI / NLP extracts requirements ──► THIS deterministic engine ──► ranked options
 //

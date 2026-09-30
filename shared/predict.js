@@ -1,4 +1,4 @@
-// Sehat Setu – predictive analytics.
+// Medreach – predictive analytics.
 //
 // Small, explainable statistical models (no black box) that answer the three
 // questions a dispatcher asks in their head:

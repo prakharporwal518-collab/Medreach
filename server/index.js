@@ -1,4 +1,4 @@
-// Sehat Setu – HTTP server (thin Express adapter over server/api.js).
+// Medreach – HTTP server (thin Express adapter over server/api.js).
 //
 //   Citizen app  (public/index.html)     ──┐
 //   Family tracking (index.html?track=)  ──┼──► REST + Server-Sent Events ──► api.js ──► store.js (cases, audit)
@@ -87,7 +87,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
       console.error(`Could not start on port ${port}: ${err.message}`);
       process.exit(1);
     }
-    console.log(`\n🚑 Sehat Setu running at http://localhost:${port}`);
+    console.log(`\n🚑 Medreach running at http://localhost:${port}`);
     console.log(`   Citizen app:      http://localhost:${port}/`);
     console.log(`   Hospital console: http://localhost:${port}/hospital`);
     console.log(`   Data mode:        ${DATA_MODE === 'demo' ? 'DEMO – simulated hospital data, OTP shown on screen' : 'LIVE – staff-verified data only'}`);

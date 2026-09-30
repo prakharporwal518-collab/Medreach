@@ -3,36 +3,19 @@
 
 const L = window.L;
 
-// Map tiles. The site sends "Referrer-Policy: no-referrer", but tile servers
-// (OpenStreetMap in particular) refuse tile requests that carry no referrer,
-// so the tiles get their own referrer policy. If a provider fails, we fall
-// back to the next one.
-const TILE_PROVIDERS = [
-  {
-    url: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
-    options: { subdomains: 'abcd', maxZoom: 20, attribution: '&copy; OpenStreetMap contributors &copy; CARTO' },
-  },
-  {
-    url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-    options: { maxZoom: 19, attribution: '&copy; OpenStreetMap contributors' },
-  },
-];
+// Map tiles: free, public OpenStreetMap tiles. No API key, token or account
+// is needed or used anywhere in the map.
+// The site sends "Referrer-Policy: no-referrer", but OpenStreetMap refuses
+// tile requests that carry no referrer, so the tiles get their own referrer
+// policy. If tiles are blocked, the pins still show on a plain grid.
+const OSM_TILES = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
 
-function addTiles(map, i = 0) {
-  const p = TILE_PROVIDERS[i];
-  if (!p) return;
-  const layer = L.tileLayer(p.url, { ...p.options, referrerPolicy: 'strict-origin-when-cross-origin' });
-  let loaded = 0;
-  let failed = 0;
-  layer.on('tileload', () => { loaded += 1; });
-  layer.on('tileerror', () => {
-    failed += 1;
-    if (failed >= 4 && loaded === 0 && TILE_PROVIDERS[i + 1]) {
-      map.removeLayer(layer);
-      addTiles(map, i + 1);
-    }
-  });
-  layer.addTo(map);
+function addTiles(map) {
+  L.tileLayer(OSM_TILES, {
+    maxZoom: 19,
+    attribution: '&copy; OpenStreetMap contributors',
+    referrerPolicy: 'strict-origin-when-cross-origin',
+  }).addTo(map);
 }
 
 export function createMap(el, center, zoom = 13) {
