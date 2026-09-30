@@ -3,6 +3,18 @@
 **Challenge 5 · AI Innovation for Public Services & Citizen-Centric Governance · Domain: Healthcare**
 MPOnline Idea & Innovation Hackathon 2026
 
+### 🌐 Live demo: **https://medreach-wtne.onrender.com**
+
+| Open | Link |
+|---|---|
+| 🏠 Home page | https://medreach-wtne.onrender.com |
+| 🔐 Sign in (citizen / hospital staff) | https://medreach-wtne.onrender.com/login |
+| 👤 Citizen dashboard | https://medreach-wtne.onrender.com/citizen |
+| 🏥 Hospital dashboard | https://medreach-wtne.onrender.com/hospital |
+| 🚨 Report emergency (no login) | https://medreach-wtne.onrender.com/report |
+
+> Free Render plan: the first visit after 15 idle minutes takes about 30–50 seconds to wake up. Open the link a minute before presenting.
+
 > In a medical emergency, families usually rush to the *nearest* hospital, only to find there is no cardiologist on duty, the CT scanner is down, or the ICU is full. They then lose the golden hour driving to a second hospital.
 >
 > **Medreach is an emergency *coordination* platform, not a diagnosis app.** It gets the patient to a hospital that can treat them, and that has **accepted** them, before they leave home.
@@ -74,6 +86,8 @@ Optional Generative AI: `export ANTHROPIC_API_KEY=...` before `npm start`. Every
 ---
 
 ## ☁️ Deploy on Render
+
+**Live now:** https://medreach-wtne.onrender.com (auto-deploys on every merge to `main`).
 
 One click: **New → Blueprint** → select this repo. [`render.yaml`](render.yaml) sets the build and start commands, the health check and all environment variables. Only `ANTHROPIC_API_KEY` is asked for, and it's optional.
 Manual: **New → Web Service** with build command `npm ci`, start command `npm start`, health check `/api/config`, plus the variables in `render.yaml`. Render provides `PORT` itself.
