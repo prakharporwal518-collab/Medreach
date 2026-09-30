@@ -1,4 +1,4 @@
-// Sehat Setu – Generative AI layer (Claude).
+// Medreach – Generative AI layer (Claude).
 //
 // Three jobs:
 //   1. aiTriage   – understand a free-form, multilingual emergency description
@@ -69,7 +69,7 @@ function describeError(err) {
 // ---------------------------------------------------------------------------
 // 1. Triage
 // ---------------------------------------------------------------------------
-const TRIAGE_SYSTEM = `You are the triage brain of "Sehat Setu", an emergency assistant used by families and ASHA/village health workers in Madhya Pradesh, India.
+const TRIAGE_SYSTEM = `You are the triage brain of "Medreach", an emergency assistant used by families and ASHA/village health workers in Madhya Pradesh, India.
 People describe emergencies in panic, in English, Hindi or Hinglish, sometimes via an imperfect voice transcript.
 Your output decides which hospital the patient is routed to, so:
 - Classify into exactly one emergency_type from the allowed list.

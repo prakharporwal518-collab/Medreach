@@ -1,9 +1,9 @@
-// Sehat Setu service worker – makes the app installable and usable offline.
+// Medreach service worker – makes the app installable and usable offline.
 // App shell + shared AI engines are cached, so an emergency can still be
 // understood and hospitals suggested (from the last saved status) without
 // internet. API calls are network-first with a cached fallback.
 
-const VERSION = 'sehat-v4';
+const VERSION = 'medreach-v5';
 const SHELL = [
   '/', '/index.html', '/report', '/report.html', '/login', '/login.html', '/citizen', '/citizen.html', '/hospital', '/hospital.html',
   '/css/app.css', '/css/ui.css', '/manifest.webmanifest', '/icons/icon.svg',

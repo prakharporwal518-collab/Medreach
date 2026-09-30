@@ -1,6 +1,6 @@
-# Sehat Setu – Privacy & Security by Design
+# Medreach – Privacy & Security by Design
 
-Sehat Setu handles sensitive data: location, emergency descriptions, patient identity, ABHA / Ayushman numbers, allergies and health documents. This page describes what is **implemented in the prototype** and what is **designed for deployment**.
+Medreach handles sensitive data: location, emergency descriptions, patient identity, ABHA / Ayushman numbers, allergies and health documents. This page describes what is **implemented in the prototype** and what is **designed for deployment**.
 
 ## 1. Data we handle and who can see it
 

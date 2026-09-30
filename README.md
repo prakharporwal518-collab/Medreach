@@ -1,11 +1,11 @@
-# 🚑 Sehat Setu – सेहत सेतु
+# 🚑 Medreach
 
 **Challenge 5 · AI Innovation for Public Services & Citizen-Centric Governance · Domain: Healthcare**
 MPOnline Idea & Innovation Hackathon 2026
 
 > In a medical emergency, families usually rush to the *nearest* hospital, only to find there is no cardiologist on duty, the CT scanner is down, or the ICU is full. They then lose the golden hour driving to a second hospital.
 >
-> **Sehat Setu is an emergency *coordination* platform, not a diagnosis app.** It gets the patient to a hospital that can treat them, and that has **accepted** them, before they leave home.
+> **Medreach is an emergency *coordination* platform, not a diagnosis app.** It gets the patient to a hospital that can treat them, and that has **accepted** them, before they leave home.
 
 ### Our USP
 
@@ -25,7 +25,7 @@ MPOnline Idea & Innovation Hackathon 2026
 
 ## ▶️ See it instantly: one HTML file
 
-Download **[`demo/sehat-setu-prototype.html`](demo/sehat-setu-prototype.html)** and double-click it. There's no install and no server.
+Download **[`demo/medreach-prototype.html`](demo/medreach-prototype.html)** and double-click it. There's no install and no server.
 You get the citizen app in a phone frame next to the hospital console.
 - Keep **"I'll act as the hospital desk"** ticked: the console logs in as the receiving hospital's Emergency Desk Officer (real OTP flow, demo OTP), and you accept the referral yourself.
 - Untick it: the ER desk is simulated.
@@ -67,7 +67,7 @@ Every dashboard page that deals with a place has a **LIVE** map. Markers move an
 
 - The citizen map shows the real ambulance position only in the browser tab that raised the case. The case token is handed over in that tab's `sessionStorage` and is never saved to `localStorage`. On other devices the position is estimated from the ETA and labelled "estimated position".
 - Pick-up points reach hospitals rounded to about 100 m.
-- Map tiles come from CARTO (OpenStreetMap data), falling back to openstreetmap.org. The server sends `Referrer-Policy: no-referrer`, so each tile request sets its own referrer policy; OpenStreetMap refuses tile requests that carry no referrer. If tiles are blocked on a network, the pins still work on a plain grid.
+- **The map needs no API key.** Tiles are free public OpenStreetMap tiles; no key, token or account is used anywhere in the map code. The server sends `Referrer-Policy: no-referrer`, so each tile request sets its own referrer policy; OpenStreetMap refuses tile requests that carry no referrer. If tiles are blocked on a network, the pins still work on a plain grid.
 
 Optional Generative AI: `export ANTHROPIC_API_KEY=...` before `npm start`. Everything works without it.
 
@@ -90,7 +90,7 @@ We state this plainly, in the app (yellow **DEMO** banner) and here:
 | "Verified N min ago" | Seed times vary so all 🟢/🟡/🔴 levels are visible; any staff update re-verifies | Only staff updates/confirmations verify data |
 | Hospital acceptance | Real flow when staff are logged in; **simulated** desk when nobody is logged in | Always a logged-in staff member |
 | Staff & OTP | Fictional staff; OTP shown on screen (no SMS gateway) | Staff registry + SMS OTP; OTP is never returned by the API (`SEHAT_DATA_MODE=live`) |
-| Ambulance | **Simulated** units and movement | Hand-off to the authorised **108 / ambulance control room (CAD)**. Sehat Setu does not control 108 |
+| Ambulance | **Simulated** units and movement | Hand-off to the authorised **108 / ambulance control room (CAD)**. Medreach does not control 108 |
 | Trusted-contact SMS | Simulated (logged + WhatsApp share link) | SMS gateway |
 | AI | Offline rules engine; Claude when a key is set | Claude (with the rules engine as floor and fallback) |
 
@@ -209,7 +209,7 @@ Capability available?  Current status?
 
 ## Every suggested technology, where it is used
 
-| Technology | How Sehat Setu uses it | Code |
+| Technology | How Medreach uses it | Code |
 |---|---|---|
 | **Generative AI** | Claude extracts requirements from messy multilingual descriptions and drafts an **SBAR pre-arrival handover note** for the ER doctor. | `server/llm.js` |
 | **Voice Bots** | Speak the emergency in Hindi or English. Acceptance, safety steps and directions are read aloud, and the console announces new referrals. | `public/js/voice.js` |
@@ -272,4 +272,4 @@ shared/ (runs on server AND phone): triage · matching · predict · freshness �
 - Persistent encrypted database, key management and a formal DPDP Act 2023 impact assessment.
 - Clinical validation of the triage rules with emergency physicians.
 
-> ⚠️ Sehat Setu is a prototype and does not replace medical advice. In an emergency, always call **108**.
+> ⚠️ Medreach is a prototype and does not replace medical advice. In an emergency, always call **108**.

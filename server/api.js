@@ -1,4 +1,4 @@
-// Sehat Setu – API routes, independent of the web framework.
+// Medreach – API routes, independent of the web framework.
 // Used by server/index.js (Express) and by the single-file demo (in-browser),
 // so both enforce exactly the same rules.
 //

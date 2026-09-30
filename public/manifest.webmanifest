@@ -1,6 +1,6 @@
 {
-  "name": "Sehat Setu – Emergency Help",
-  "short_name": "Sehat Setu",
+  "name": "Medreach – Emergency Help",
+  "short_name": "Medreach",
   "description": "AI emergency assistant: understands the emergency, finds a hospital that can treat it right now, gets acceptance and guides you there.",
   "start_url": "/",
   "scope": "/",

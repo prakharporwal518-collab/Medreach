@@ -1,4 +1,4 @@
-// Sehat Setu – citizen app. Each step below is one box of the flowchart:
+// Medreach – citizen app. Each step below is one box of the flowchart:
 //
 //  0 🚨 Sudden emergency   – voice / text / quick chip (+ photo, + health card) · 🆘 I'm alone
 //  1 🧠 AI understands     – AI/NLP extracts requirements (NOT a diagnosis)
@@ -774,7 +774,7 @@ let watchId = null;
 
 function trackUrl() {
   if (!state.caseData || !state.trackToken) return '';
-  const origin = /^https?:/.test(location.origin) ? location.origin : 'https://sehat-setu.example';
+  const origin = /^https?:/.test(location.origin) ? location.origin : 'https://medreach.example';
   return `${origin}/report?track=${encodeURIComponent(state.caseData.id)}&t=${encodeURIComponent(state.trackToken)}`;
 }
 
@@ -784,7 +784,7 @@ async function showNavigation() {
   const h = state.selected.hospital;
   const tr = state.caseData?.transport;
   const gmaps = `https://www.google.com/maps/dir/?api=1&destination=${h.lat},${h.lng}&travelmode=driving`;
-  const share = `🚑 Sehat Setu: ${state.triage.label} – going to ${h.name}. ${s.liveStatus}: ${trackUrl() || gmaps}`;
+  const share = `🚑 Medreach: ${state.triage.label} – going to ${h.name}. ${s.liveStatus}: ${trackUrl() || gmaps}`;
   $('#step-6').innerHTML = `
     <div class="nav-banner" id="navBanner"><span class="arrow">⬆️</span><div><b id="navText">${esc(hName(h))}</b><span id="navSub" class="small"></span></div></div>
     <div class="card" style="margin-top:1rem">

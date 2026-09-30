@@ -1,4 +1,4 @@
-// Builds demo/sehat-setu-prototype.html – ONE self-contained file that runs the
+// Builds demo/medreach-prototype.html – ONE self-contained file that runs the
 // whole prototype by double-clicking it (no Node.js, no server):
 //   • left:  the real citizen app (public/js/app.js) inside a phone frame
 //   • right: the real hospital console (public/js/hospital.js)
@@ -71,8 +71,8 @@ ${styles.map((st) => `<style>${st}</style>`).join('')}</head>
 <body${body.attrs}>${body.html}${scripts.map((sc) => `<script>${sc}</script>`).join('')}</body></html>`;
 
 const templates = {
-  citizen: page('Sehat Setu – Emergency', bodyOf('public/report.html'), [leafletJs, shimJs, appJs], [leafletCss, css]),
-  hospital: page('Sehat Setu – Hospital Dashboard', bodyOf('public/hospital.html'), [leafletJs, shimJs, hospitalJs], [leafletCss, uiCss]),
+  citizen: page('Medreach – Emergency', bodyOf('public/report.html'), [leafletJs, shimJs, appJs], [leafletCss, css]),
+  hospital: page('Medreach – Hospital Dashboard', bodyOf('public/hospital.html'), [leafletJs, shimJs, hospitalJs], [leafletCss, uiCss]),
 };
 // Safe to embed inside <script>: no "</" or "<!--" sequences.
 const templatesJs = `window.__TPL=${JSON.stringify(templates).replace(/<\//g, '<\\/').replace(/<!--/g, '<\\!--')};`;
@@ -82,8 +82,8 @@ const shell = `<!doctype html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Sehat Setu Prototype</title>
-<meta name="description" content="Sehat Setu – AI emergency healthcare bridge. Interactive prototype: citizen app and hospital console.">
+<title>Medreach Prototype</title>
+<meta name="description" content="Medreach – AI emergency healthcare bridge. Interactive prototype: citizen app and hospital console.">
 <link rel="icon" href="${iconUri}">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans:wght@400;600;700;800&display=swap">
 <style>
@@ -126,7 +126,7 @@ iframe { width: 100%; height: 100%; border: 0; display: block; }
 <body>
 <header>
   <img src="${iconUri}" alt="">
-  <div><h1>Sehat Setu – interactive prototype</h1><p>Emergency → Understand → Match → Verify → Accept → Transport → Confirm. <b>Demo mode:</b> hospital data, SMS and ambulance dispatch are simulated.</p></div>
+  <div><h1>Medreach – interactive prototype</h1><p>Emergency → Understand → Match → Verify → Accept → Transport → Confirm. <b>Demo mode:</b> hospital data, SMS and ambulance dispatch are simulated.</p></div>
   <span class="spacer"></span>
   <label class="toggle" title="When on, admission requests go to the hospital console and wait for YOU to accept. When off, the ER desk is simulated.">
     <input type="checkbox" id="staffed"> I'll act as the hospital desk
@@ -197,6 +197,6 @@ iframe { width: 100%; height: 100%; border: 0; display: block; }
 </html>
 `;
 
-const outFile = path.join(root, 'demo', 'sehat-setu-prototype.html');
+const outFile = path.join(root, 'demo', 'medreach-prototype.html');
 fs.writeFileSync(outFile, shell);
 console.log(`✓ ${path.relative(root, outFile)} (${Math.round(shell.length / 1024)} KB)`);

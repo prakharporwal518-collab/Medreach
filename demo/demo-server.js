@@ -1,5 +1,5 @@
-// In-browser version of the Sehat Setu backend, used only by the single-file
-// demo (demo/sehat-setu-prototype.html). It runs the SAME api.js / store.js /
+// In-browser version of the Medreach backend, used only by the single-file
+// demo (demo/medreach-prototype.html). It runs the SAME api.js / store.js /
 // auth.js as the Node server (demo data mode, no Claude), so the real citizen
 // app and hospital console run unchanged, without Node.js.
 

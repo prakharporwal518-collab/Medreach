@@ -1,4 +1,4 @@
-// Sehat Setu – rule-based emergency understanding engine.
+// Medreach – rule-based emergency understanding engine.
 //
 // Runs identically on the server and in the browser (ES module, no deps), so
 // the app can still understand an emergency when there is no internet.
