@@ -55,6 +55,20 @@ npm run build:demo   # regenerate the single-file demo
 - **Neither portal can see into the other.** Opening `/citizen` without a citizen login redirects to sign-in, and opening `/hospital` without a staff session shows the staff sign-in gate. Staff see a patient's identity only if the family consented when raising the emergency, with IDs masked, and only for referrals sent to their hospital.
 - Staff accounts can't be self-registered, so nobody can pose as a hospital.
 
+### 🗺️ Live emergency maps
+Every dashboard page that deals with a place has a **LIVE** map. Markers move and change colour in place as updates stream in (SSE), without redrawing the map.
+
+| Where | What it shows live |
+|---|---|
+| Citizen · Home, Nearby Hospitals | You, hospitals coloured by ER status (open / busy / full) with free ICU beds, and your active case |
+| Citizen · My Cases, Ambulance | Pick-up point, accepting hospital and the **ambulance moving** along its route |
+| Hospital · Dashboard, Emergency Cases, Patient Queue | This hospital, nearby hospitals' public status, incoming patients and their ambulance or own vehicle with live ETA |
+| Hospital · case details | The patient's pick-up point and vehicle for that one case |
+
+- The citizen map shows the real ambulance position only in the browser tab that raised the case. The case token is handed over in that tab's `sessionStorage` and is never saved to `localStorage`. On other devices the position is estimated from the ETA and labelled "estimated position".
+- Pick-up points reach hospitals rounded to about 100 m.
+- Map tiles come from CARTO (OpenStreetMap data), falling back to openstreetmap.org. The server sends `Referrer-Policy: no-referrer`, so each tile request sets its own referrer policy; OpenStreetMap refuses tile requests that carry no referrer. If tiles are blocked on a network, the pins still work on a plain grid.
+
 Optional Generative AI: `export ANTHROPIC_API_KEY=...` before `npm start`. Everything works without it.
 
 ---

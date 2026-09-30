@@ -3,15 +3,44 @@
 
 const L = window.L;
 
+// Map tiles. The site sends "Referrer-Policy: no-referrer", but tile servers
+// (OpenStreetMap in particular) refuse tile requests that carry no referrer,
+// so the tiles get their own referrer policy. If a provider fails, we fall
+// back to the next one.
+const TILE_PROVIDERS = [
+  {
+    url: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
+    options: { subdomains: 'abcd', maxZoom: 20, attribution: '&copy; OpenStreetMap contributors &copy; CARTO' },
+  },
+  {
+    url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+    options: { maxZoom: 19, attribution: '&copy; OpenStreetMap contributors' },
+  },
+];
+
+function addTiles(map, i = 0) {
+  const p = TILE_PROVIDERS[i];
+  if (!p) return;
+  const layer = L.tileLayer(p.url, { ...p.options, referrerPolicy: 'strict-origin-when-cross-origin' });
+  let loaded = 0;
+  let failed = 0;
+  layer.on('tileload', () => { loaded += 1; });
+  layer.on('tileerror', () => {
+    failed += 1;
+    if (failed >= 4 && loaded === 0 && TILE_PROVIDERS[i + 1]) {
+      map.removeLayer(layer);
+      addTiles(map, i + 1);
+    }
+  });
+  layer.addTo(map);
+}
+
 export function createMap(el, center, zoom = 13) {
   // Animations off: lighter on low-end phones, and a map can be safely
   // re-created while the hospital list refreshes live.
   const map = L.map(el, { zoomControl: true, attributionControl: true, zoomAnimation: false, fadeAnimation: false, markerZoomAnimation: false })
     .setView([center.lat, center.lng], zoom);
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    maxZoom: 19,
-    attribution: '&copy; OpenStreetMap contributors',
-  }).addTo(map);
+  addTiles(map);
   // Leaflet needs a size recalculation when its container was hidden.
   // (Skipped if the map was removed meanwhile, e.g. the user switched views.)
   let removed = false;

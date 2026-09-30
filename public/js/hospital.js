@@ -9,7 +9,7 @@ import { capLabel, checkCapability, SPECIALIST_CAPS, EQUIPMENT_CAPS } from '/sha
 import { freshness, freshnessLabel, ago } from '/shared/freshness.js';
 import { ROLES } from '/shared/roles.js';
 import { roadKm } from '/shared/predict.js';
-import { createMap, marker } from './map.js';
+import { LiveMap, statusKind, legend } from './livemap.js';
 
 const $ = (s, r = document) => r.querySelector(s);
 const session = {
@@ -21,7 +21,7 @@ const session = {
 const state = {
   auth: null, hospital: null, hospitals: [], cases: new Map(), amb: new Map(), es: null,
   config: { dataMode: 'demo' }, forecast: [], audit: [], view: 'dashboard', caseTab: 'pending',
-  sound: true, map: null, lastEvent: null,
+  sound: true, map: null, modalMap: null, pubES: null, lastEvent: null,
 };
 const canDo = (p) => Boolean(state.auth?.permissions?.includes(p));
 
@@ -189,14 +189,41 @@ function connect() {
     softRender();
   });
   es.addEventListener('case', (e) => { const c = JSON.parse(e.data); state.cases.set(c.id, c); touch(); softRender(); });
-  es.addEventListener('ambulance', (e) => { const a = JSON.parse(e.data); state.amb.set(a.caseId, a); touch(); softRender(); });
+  es.addEventListener('ambulance', (e) => { const a = JSON.parse(e.data); state.amb.set(a.caseId, a); touch(); updateLive(); });
   es.addEventListener('position', (e) => {
     const p = JSON.parse(e.data);
     const c = state.cases.get(p.caseId);
-    if (c?.transport) { c.transport.etaMin = p.etaMin; softRender(); }
+    if (c?.transport) { c.transport.etaMin = p.etaMin; c.transport.position = { lat: p.lat, lng: p.lng }; touch(); updateLive(); }
   });
   es.addEventListener('status', (e) => { state.hospital.status = JSON.parse(e.data).status; touch(); softRender(); });
   es.addEventListener('audit', async () => { await loadAudit(); softRender(); });
+
+  // Public status of neighbouring hospitals, for the live map.
+  state.pubES?.close();
+  try {
+    state.pubES = new EventSource('/api/stream/hospitals');
+    state.pubES.addEventListener('status', (e) => {
+      const { id, status } = JSON.parse(e.data);
+      const h = state.hospitals.find((x) => x.id === id);
+      if (!h || id === state.hospital.id) return;
+      h.status = status;
+      if (state.map?.markers.has(`h:${id}`)) drawNeighbour(h);
+    });
+  } catch { /* optional */ }
+}
+
+// Ambulance / vehicle movement: move markers and update ETA cells in place.
+function updateLive() {
+  drawIncoming(state.map);
+  drawIncoming(state.modalMap, state.modalCase);
+  for (const el of document.querySelectorAll('[data-eta]')) {
+    const c = state.cases.get(el.dataset.eta);
+    if (c) el.textContent = `${eta(c) ?? '–'} min`;
+  }
+  for (const el of document.querySelectorAll('[data-tp]')) {
+    const c = state.cases.get(el.dataset.tp);
+    if (c) el.textContent = transportText(c);
+  }
 }
 
 // Don't wipe what staff are typing (e.g. a bay number) when live updates arrive.
@@ -282,7 +309,7 @@ function casesTable(rows) {
     <thead><tr><th>Time</th><th>Patient</th><th>Issue</th><th>Priority</th><th>ETA</th><th>Status</th><th>Action</th></tr></thead>
     <tbody>${rows.map((c) => `<tr>
       <td>${reqTime(c)}</td><td>${patientName(c)}</td><td>${esc(c.triage.icon)} ${esc(c.triage.label)}</td><td>${prio(c.triage.severity)}</td>
-      <td>${eta(c) ?? '–'} min</td><td>${statusPill(c)}</td>
+      <td data-eta="${esc(c.id)}">${eta(c) ?? '–'} min</td><td>${statusPill(c)}</td>
       <td><button class="b sm ${c.status === 'requested' ? 'primary' : ''}" data-view-case="${esc(c.id)}">${c.status === 'requested' ? 'Review' : 'View'}</button></td>
     </tr>`).join('')}</tbody></table></div>`;
 }
@@ -372,8 +399,8 @@ function viewDashboard() {
           <button class="b sm" data-go="reports">${icon('chart', 'sm')} View reports</button>
         </div>
       </div>
-      <div class="panel"><div class="panel-head"><h3>Nearby Hospitals &amp; Resources</h3></div><div class="map-box" id="hMap"></div>
-        <div class="map-legend"><span>🏥 This hospital</span><span>🏨 Others (public status)</span></div></div>
+      <div class="panel"><div class="panel-head"><h3>Live Map <span class="live-badge">LIVE</span></h3><button class="link" data-go="queue">Queue ${icon('arrow', 'sm')}</button></div><div class="map-box" id="hMap"></div>
+        ${MAP_LEGEND}</div>
       <div class="panel"><div class="panel-head"><h3>Recent Activity</h3>${canDo('audit.view') ? `<button class="link" data-go="audit">Audit log ${icon('arrow', 'sm')}</button>` : ''}</div><div class="list">${recentActivity()}</div></div>
     </div>`;
 }
@@ -408,6 +435,8 @@ function viewCases() {
   const rows = state.caseTab === 'pending' ? pending() : state.caseTab === 'active' ? active() : list();
   return `
     <div class="page-head"><h1>Emergency Cases</h1><p>Referral requests sent to ${esc(state.hospital.name)} – with the AI pre-arrival (SBAR) note.</p></div>
+    <div class="panel"><div class="panel-head"><h3>Where the patients are <span class="live-badge">LIVE</span></h3></div>
+      <div class="map-box" id="cMap"></div>${MAP_LEGEND}</div>
     <div class="row">${tabs.map(([k, l]) => `<button class="chip-t" data-tab="${k}" aria-pressed="${state.caseTab === k}">${l}</button>`).join('')}</div>
     ${rows.length ? rows.map(caseCard).join('') : '<div class="panel empty-state">Nothing here right now.</div>'}
     <p class="lock-note">${icon('lock', 'sm')} Hospital-specific access: a referral disappears from this list if the family's request moves to another hospital.</p>`;
@@ -418,10 +447,13 @@ function viewQueue() {
   const done = list().filter((c) => c.status === 'arrived');
   return `
     <div class="page-head"><h1>Patient Queue</h1><p>Accepted patients on their way, with live ETA.</p></div>
+    <div class="panel"><div class="panel-head"><h3>Live map · incoming patients <span class="live-badge">LIVE</span></h3></div>
+      <div class="map-box tall" id="qMap"></div>${MAP_LEGEND}
+      <p class="small muted" style="margin:.35rem 0 0">Ambulances move live on the map. Patient pick-up points are rounded to about 100 m for privacy.</p></div>
     <div class="panel"><div class="panel-head"><h3>On the way (${rows.length})</h3></div>
       ${rows.length ? `<div class="table-wrap"><table class="t"><thead><tr><th>Case</th><th>Patient</th><th>Issue</th><th>Priority</th><th>Bay</th><th>Transport</th><th>ETA</th></tr></thead><tbody>
-        ${rows.map((c) => { const a = state.amb.get(c.id); return `<tr><td>${esc(c.id)}</td><td>${patientName(c)}</td><td>${esc(c.triage.label)}</td><td>${prio(c.triage.severity)}</td><td><b>${esc(c.bay || '–')}</b></td>
-          <td>${c.transport ? (c.transport.mode === 'ambulance' ? `🚑 ${esc(c.transport.ambulance.id)}${a ? ` · ${esc(a.phase.replace('_', ' '))}` : ''}` : '🚗 own vehicle') : 'deciding'}</td><td><b>${eta(c) ?? '–'}</b> min</td></tr>`; }).join('')}
+        ${rows.map((c) => `<tr><td>${esc(c.id)}</td><td>${patientName(c)}</td><td>${esc(c.triage.label)}</td><td>${prio(c.triage.severity)}</td><td><b>${esc(c.bay || '–')}</b></td>
+          <td data-tp="${esc(c.id)}">${esc(transportText(c))}</td><td><b data-eta="${esc(c.id)}">${eta(c) ?? '–'} min</b></td></tr>`).join('')}
       </tbody></table></div>` : '<div class="empty-state">No patients on the way.</div>'}
     </div>
     <div class="panel"><div class="panel-head"><h3>Arrived & handed over (${done.length})</h3></div>${casesTable(done)}</div>`;
@@ -570,13 +602,15 @@ function renderBadges() {
 
 function render() {
   if (!state.hospital) return;
-  if (state.map) { state.map.remove(); state.map = null; }
+  if (state.map) { state.map.destroy(); state.map = null; }
   $('#view').innerHTML = VIEWS[state.view]();
   for (const b of document.querySelectorAll('.nav-item[data-view]')) {
     if (b.dataset.view === state.view) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current');
   }
   renderBadges();
-  if (state.view === 'dashboard') drawMap();
+  if (state.view === 'dashboard') drawMap('#hMap');
+  if (state.view === 'queue') drawMap('#qMap');
+  if (state.view === 'cases') drawMap('#cMap');
   if (state.view === 'beds') $('#erStatus').onchange = (e) => patchStatus({ erStatus: e.target.value });
   if (state.view === 'settings') {
     $('#soundToggle').onchange = (e) => { state.sound = e.target.checked; };
@@ -584,18 +618,58 @@ function render() {
   }
 }
 
-function drawMap() {
-  const el = $('#hMap');
+const MAP_LEGEND = legend([['self', 'This hospital'], ['open', 'Open'], ['busy', 'Busy'], ['full', 'Full'], ['patient', 'Patient pick-up'], ['ambulance', 'Ambulance'], ['car', 'Own vehicle']]);
+
+function transportText(c) {
+  if (!c.transport) return 'deciding';
+  if (c.transport.mode !== 'ambulance') return '🚗 own vehicle';
+  const a = state.amb.get(c.id);
+  return `🚑 ${c.transport.ambulance.id}${a ? ` · ${a.phase.replace('_', ' ')}` : ''}`;
+}
+
+function drawNeighbour(h) {
+  const icu = h.status?.beds?.icu;
+  state.map?.set(`h:${h.id}`, h, statusKind(h), {
+    text: icu?.total ? String(icu.free) : '',
+    popup: `<b>${esc(h.name)}</b><br>${esc(h.status?.erStatus || '')} · ICU ${icu?.total ? `${icu.free}/${icu.total}` : '–'}`,
+  });
+}
+
+// Patients heading here: pick-up point, live vehicle position and route line.
+function drawIncoming(lm, only = null) {
+  if (!lm) return;
+  const keep = new Set();
+  for (const c of [...pending(), ...active()]) {
+    if (only && c.id !== only) continue;
+    const name = c.patient?.name ? esc(c.patient.name) : 'Patient';
+    if (c.location) {
+      lm.set(`c:p:${c.id}`, c.location, 'patient', { text: '!', popup: `<b>${name}</b> · ${esc(c.triage.label)}<br>${esc(c.id)} · ${esc(c.status)}`, z: 600 });
+      keep.add(`c:p:${c.id}`);
+    }
+    const a = state.amb.get(c.id);
+    const vpos = a?.position || c.transport?.position;
+    if (vpos) {
+      const amb = c.transport?.mode === 'ambulance';
+      lm.set(`c:v:${c.id}`, vpos, amb ? 'ambulance' : 'car', { text: amb ? '🚑' : '🚗', popup: `<b>${esc(transportText(c))}</b><br>${esc(c.triage.label)} · ETA ${eta(c) ?? '?'} min`, z: 900 });
+      lm.line(`c:l:${c.id}`, vpos, state.hospital, '#e11d48');
+      keep.add(`c:v:${c.id}`); keep.add(`c:l:${c.id}`);
+    } else if (c.location) {
+      lm.line(`c:l:${c.id}`, c.location, state.hospital, '#7c3aed');
+      keep.add(`c:l:${c.id}`);
+    }
+  }
+  lm.prune('c:', keep);
+}
+
+function drawMap(sel) {
+  const el = $(sel);
   if (!el || !window.L) return;
   const h = state.hospital;
-  state.map = createMap(el, h, 11);
-  const g = window.L.featureGroup().addTo(state.map);
-  marker(state.map, h, '🏥', `<b>${esc(h.name)}</b>`).addTo(g);
-  for (const o of state.hospitals.filter((x) => x.id !== h.id).map((x) => ({ x, km: roadKm(h, x) })).sort((a, b) => a.km - b.km).slice(0, 6)) {
-    const icu = o.x.status?.beds?.icu;
-    marker(state.map, o.x, '🏨', `<b>${esc(o.x.name)}</b><br>${Math.round(o.km * 10) / 10} km${icu?.total ? ` · ICU ${icu.free}/${icu.total}` : ''}`).addTo(g);
-  }
-  state.map.fitBounds(g.getBounds().pad(0.15));
+  state.map = new LiveMap(el, h, 11);
+  state.map.set('self', h, 'self', { text: 'H', popup: `<b>${esc(h.name)}</b><br>This hospital`, z: 800 });
+  for (const o of state.hospitals.filter((x) => x.id !== h.id).map((x) => ({ x, km: roadKm(h, x) })).sort((a, b) => a.km - b.km).slice(0, 6)) drawNeighbour(o.x);
+  drawIncoming(state.map);
+  state.map.fit();
 }
 
 function go(view) {
@@ -609,8 +683,19 @@ function openCase(id) {
   const c = state.cases.get(id);
   if (!c) return;
   $('#mTitle').textContent = `${c.triage.icon} ${c.triage.label} · ${c.id}`;
-  $('#mBody').innerHTML = caseCard(c).replace(`id="bay-${esc(c.id)}"`, 'id="mBay"');
+  $('#mBody').innerHTML = `${caseCard(c).replace(`id="bay-${esc(c.id)}"`, 'id="mBay"')}
+    <div class="panel-head" style="margin-top:.8rem"><h3>Patient location <span class="live-badge">LIVE</span></h3></div>
+    <div class="map-box" id="mMap" style="height:230px"></div>
+    <p class="small muted" style="margin:.35rem 0 0">Pick-up point rounded to about 100 m for privacy.</p>`;
   $('#caseModal').showModal();
+  state.modalCase = c.id;
+  state.modalMap?.destroy();
+  if (window.L && c.location) {
+    state.modalMap = new LiveMap($('#mMap'), c.location, 12);
+    state.modalMap.set('self', state.hospital, 'self', { text: 'H', popup: esc(state.hospital.name) });
+    drawIncoming(state.modalMap, c.id);
+    state.modalMap.fit();
+  }
 }
 
 // ---------------------------------------------------------------- events
@@ -645,6 +730,7 @@ document.addEventListener('click', (e) => {
 
 async function boot() {
   hydrateIcons();
+  $('#caseModal').addEventListener('close', () => { state.modalMap?.destroy(); state.modalMap = null; state.modalCase = null; });
   for (const b of document.querySelectorAll('.nav-item[data-view]')) b.onclick = () => go(b.dataset.view);
   $('#menuBtn').onclick = () => $('#side').classList.toggle('open');
   $('#userBtn').onclick = () => $('#userMenu').classList.toggle('hidden');
