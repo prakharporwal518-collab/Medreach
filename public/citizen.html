@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Sehat Setu – Citizen Dashboard</title>
+  <meta name="description" content="Your Sehat Setu citizen dashboard: report emergencies, follow your cases, find nearby hospitals and keep your health records ready.">
+  <meta name="theme-color" content="#121c2f">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" href="/icons/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Noto+Sans+Devanagari:wght@400;600&display=swap">
+  <link rel="stylesheet" href="/vendor/leaflet/leaflet.css">
+  <link rel="stylesheet" href="/css/ui.css">
+</head>
+<body class="ui">
+  <div class="shell">
+    <aside class="side" id="side" aria-label="Citizen navigation">
+      <a class="logo" href="/"><img src="/icons/icon.svg" alt=""><span><b>Sehat Setu</b><small>Emergency · Care · Support</small></span></a>
+      <nav class="nav" id="nav">
+        <button class="nav-item" data-view="home"><i data-i="home"></i> Home</button>
+        <a class="nav-item" href="/report"><i data-i="siren"></i> Report Emergency</a>
+        <button class="nav-item" data-view="cases"><i data-i="file"></i> My Cases <span class="count hidden" id="casesCount"></span></button>
+        <button class="nav-item" data-view="hospitals"><i data-i="pin"></i> Nearby Hospitals</button>
+        <button class="nav-item" data-view="ambulance"><i data-i="ambulance"></i> Ambulance</button>
+        <button class="nav-item" data-view="records"><i data-i="records"></i> Health Records</button>
+        <button class="nav-item" data-view="contacts"><i data-i="users"></i> Emergency Contacts</button>
+        <button class="nav-item" data-view="profile"><i data-i="user"></i> Profile</button>
+        <button class="nav-item" data-view="help"><i data-i="help"></i> Help &amp; Support</button>
+      </nav>
+      <div class="side-foot">
+        <a class="sos-card" href="tel:108"><i data-i="phone" class="lg"></i><span><small>Emergency Call</small><b>108</b></span></a>
+        <p class="side-note">For life-threatening emergencies, call 108 immediately.</p>
+      </div>
+    </aside>
+
+    <div class="main">
+      <header class="topbar">
+        <button class="menu-btn" id="menuBtn" aria-label="Open menu"><i data-i="menu"></i></button>
+        <span class="spacer"></span>
+        <button class="loc-pill" id="locBtn" title="Use my current location"><i data-i="pin" class="sm"></i><span id="locLabel">Bhopal, MP</span><i data-i="down" class="sm"></i></button>
+        <button class="icon-btn" id="bellBtn" aria-label="Notifications"><i data-i="bell"></i><span class="badge-dot hidden" id="bellCount"></span></button>
+        <button class="user-chip" id="userBtn" aria-haspopup="menu"><span class="avatar" id="avatar">–</span><span class="who"><b id="userName">–</b><small>Citizen</small></span><i data-i="down" class="sm"></i></button>
+      </header>
+      <div class="demo-strip hidden" id="demoStrip"><b>DEMO</b> Hospital figures and ambulance dispatch are simulated in this prototype.</div>
+      <div class="dropdown hidden" id="bellMenu" role="menu"></div>
+      <div class="dropdown hidden" id="userMenu" role="menu">
+        <p class="note">🔒 Your profile, health records and contacts are stored only on this device.</p>
+        <button data-go="profile"><i data-i="user" class="sm"></i> Profile</button>
+        <button data-go="records"><i data-i="records" class="sm"></i> Health records</button>
+        <button id="logoutBtn"><i data-i="logout" class="sm"></i> Sign out</button>
+      </div>
+
+      <main class="page" id="view" aria-live="polite"></main>
+    </div>
+  </div>
+  <div class="toast" id="toast" role="status"></div>
+  <script src="/vendor/leaflet/leaflet.js"></script>
+  <script type="module" src="/js/citizen.js"></script>
+</body>
+</html>

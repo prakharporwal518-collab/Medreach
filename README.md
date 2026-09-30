@@ -36,11 +36,24 @@ It runs the same app, API, auth and store code as the full server version, just 
 
 ```bash
 npm install
-npm start            # http://localhost:3000        (citizen app)
-                     # http://localhost:3000/hospital (hospital console, staff login)
+npm start            # http://localhost:3000
 npm test             # 51 tests
 npm run build:demo   # regenerate the single-file demo
 ```
+
+| Page | URL | Who | Login |
+|---|---|---|---|
+| Home page | `/` | Everyone | – |
+| Report emergency | `/report` | Anyone in an emergency | **None needed** (signed-in citizens get their details pre-filled) |
+| Sign in / register | `/login` | Citizen · Hospital Staff · Health Admin | Role cards, like a portal account screen |
+| Citizen dashboard | `/citizen` | Patients & families | Citizen account (mobile + password) |
+| Hospital dashboard | `/hospital` | Authorised hospital staff | Hospital ID + Staff ID + OTP |
+
+### Two separate portals, private from each other
+- **Citizen portal:** the account, health records, emergency contacts and case list are stored **only on the citizen's device**. The password is stored only as a salted PBKDF2 hash. The server never holds a citizen profile. Cases are followed through the read-only tracking token (status, hospital and ETA only).
+- **Hospital portal:** the server-issued staff session is kept **per browser tab** (sessionStorage) and is bound to one hospital. Roles are enforced by the server, and every action is audit-logged.
+- **Neither portal can see into the other.** Opening `/citizen` without a citizen login redirects to sign-in, and opening `/hospital` without a staff session shows the staff sign-in gate. Staff see a patient's identity only if the family consented when raising the emergency, with IDs masked, and only for referrals sent to their hospital.
+- Staff accounts can't be self-registered, so nobody can pose as a hospital.
 
 Optional Generative AI: `export ANTHROPIC_API_KEY=...` before `npm start`. Everything works without it.
 
@@ -167,13 +180,18 @@ Capability available?  Current status?
 🏥 CONFIRMED HOSPITAL ───────── reported capacity ≠ referral accepted ≠ confirmed destination
 ```
 
-| AI understands | Why this hospital? | Referral accepted | I'm alone |
-|---|---|---|---|
-| ![](docs/screenshots/2-ai-understands.png) | ![](docs/screenshots/3-hospitals.png) | ![](docs/screenshots/4-referral-accepted.png) | ![](docs/screenshots/5-im-alone.png) |
+**Home page**
+![](docs/screenshots/0-home.png)
 
-**Hospital console:** staff login (Hospital ID + Staff ID + OTP) and the audit log.
-![](docs/screenshots/6-staff-login.png)
-![](docs/screenshots/7-console-audit.png)
+**Citizen dashboard**
+![](docs/screenshots/1-citizen-dashboard.png)
+
+**Hospital dashboard**
+![](docs/screenshots/2-hospital-dashboard.png)
+
+| Sign in (role cards) | Referral review (staff) | Emergency flow: referral accepted | I'm alone |
+|---|---|---|---|
+| ![](docs/screenshots/3-login.png) | ![](docs/screenshots/4-referral-review.png) | ![](docs/screenshots/5-referral-accepted.png) | ![](docs/screenshots/6-im-alone.png) |
 
 ## Every suggested technology, where it is used
 
@@ -223,13 +241,14 @@ shared/ (runs on server AND phone): triage · matching · predict · freshness �
 
 ## 3-minute demo script
 
-1. **Console:** log in as *Bansal Hospital → BANSAL-ED01 → OTP* (shown on screen in demo). Point at *"Updated by / Time / Data source"* and the **DEMO** banner.
+0. Open the **home page** (`/`). Show the live network stats, the 7-step flow and the two separate portals. Then **Citizen login → Create account** on the phone.
+1. **Hospital dashboard:** `/login` → **Hospital Staff** → *Bansal Hospital → BANSAL-ED01 → OTP* (shown on screen in demo). Point at the KPI tiles, *"Updated by / Time / Data source"* and the **DEMO** banner.
 2. **Phone:** say *"Papa ko seene mein dard hai, pasina aa raha hai, 62 saal"*. The app shows *"may indicate: Heart attack · CRITICAL · needs cardiologist + ICU"*. Open **How was this decided?**: AI → requirements → deterministic engine.
 3. **Find hospitals.** Walk through one **Why this hospital?** checklist, the 🟢/🟡/🔴 freshness badges (Siddhanta 🟡, People's 🔴 excluded anyway: cardiologist off duty), and tap **Match score → what does it mean?**
 4. **Console:** set ER to **Diverting**. The phone shows a live update and Bansal disappears. Set it back to **Open**: Bansal returns as *"Verified just now"*.
 5. **Ask hospital to accept.** The console beeps and shows the SBAR note, with IDs masked and no details without consent. Enter bay *Resus-02* and **Accept referral**. The phone shows **Reported capacity → ACCEPTED by Emergency Desk Officer (name) → Confirmed destination, bay Resus-02**.
 6. **Request ambulance.** Note the *simulated* label and "Call 108 directly". Open **Preview what your contact sees**: status only, no medical details.
-7. Log in as **BANSAL-NO01** (Nodal Officer) to show the **audit log**.
+7. Log in as **BANSAL-NO01** (Nodal Officer) to show the **audit log**. On the phone, open the **citizen dashboard → My Cases**: the case shows *Accepted*, and the recent activity is updated.
 8. New tab → save a trusted contact → **🆘 I'm alone**. All five steps complete by themselves.
 
 ## Limitations & roadmap

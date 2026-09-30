@@ -342,3 +342,7 @@ details.score-details { margin-top: .5rem; font-size: .85rem; }
 .audit-wrap { max-height: 260px; overflow: auto; }
 .verified-line { font-size: .82rem; background: var(--surface-2); border-radius: 10px; padding: .45rem .6rem; margin: .5rem 0; }
 button:disabled, .stepper-btns button:disabled, .chip:disabled { opacity: .45; cursor: not-allowed; }
+
+/* Link to the citizen portal from the emergency flow */
+.portal-link { font-size: .85rem; font-weight: 600; text-decoration: none; color: var(--brand); border: 1px solid var(--line); border-radius: 999px; padding: .3rem .7rem; white-space: nowrap; }
+@media (max-width: 480px) { .portal-link { display: none; } }

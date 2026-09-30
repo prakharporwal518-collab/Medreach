@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sehat Setu – Sign in</title>
+  <meta name="description" content="Sign in to the Sehat Setu citizen portal or the hospital staff portal.">
+  <meta name="theme-color" content="#0b1427">
+  <link rel="icon" href="/icons/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap">
+  <link rel="stylesheet" href="/css/ui.css">
+</head>
+<body class="ui">
+  <div class="auth-bg">
+    <a class="auth-brand" href="/">
+      <img src="/icons/icon.svg" alt="">
+      <span><b>SEHAT SETU</b><small>RIGHT HOSPITAL · RIGHT NOW</small></span>
+    </a>
+
+    <div class="auth-card">
+      <h1 id="title">Sign in</h1>
+      <p class="lead" id="lead">Choose your portal to continue</p>
+
+      <div id="already" class="note-box hidden" style="margin-bottom:1rem"></div>
+
+      <div class="role-head"><span>Select your role <b>*</b></span><code id="roleCode">ROLE: CITIZEN</code></div>
+      <div class="roles" role="radiogroup" aria-label="Role">
+        <button type="button" class="role-card" role="radio" data-role="citizen" aria-checked="true">
+          <span class="r-ico"><i data-i="user"></i></span><b>Citizen</b><small>Patient / Family</small>
+        </button>
+        <button type="button" class="role-card" role="radio" data-role="staff" aria-checked="false">
+          <span class="r-ico"><i data-i="hospital"></i></span><b>Hospital Staff</b><small>ER · Resources · Nodal</small>
+        </button>
+        <button type="button" class="role-card" role="radio" data-role="admin" aria-checked="false">
+          <span class="r-ico"><i data-i="shield"></i></span><b>Health Admin</b><small>State control room</small>
+        </button>
+      </div>
+
+      <!-- ───────── Citizen ───────── -->
+      <section id="citizenBox">
+        <div class="tabs2" role="tablist">
+          <button type="button" role="tab" id="tabSignin" aria-selected="true">Sign in</button>
+          <button type="button" role="tab" id="tabRegister" aria-selected="false">Create account</button>
+        </div>
+
+        <form id="signinForm" novalidate>
+          <label class="field"><span>Mobile number <b>*</b></span>
+            <span class="input"><i data-i="phone" class="sm"></i><input id="siPhone" inputmode="tel" autocomplete="tel" placeholder="+91 98765 43210" required></span></label>
+          <label class="field"><span>Password <b>*</b></span>
+            <span class="input"><i data-i="lock" class="sm"></i><input id="siPass" type="password" autocomplete="current-password" placeholder="••••••••" required><button type="button" class="eye" data-toggle="siPass" aria-label="Show password"><i data-i="eye" class="sm"></i></button></span></label>
+          <p class="form-error" id="siError" role="alert"></p>
+          <button class="b primary lg block" type="submit">Sign in to Citizen Portal <i data-i="arrow" class="sm"></i></button>
+        </form>
+
+        <form id="registerForm" class="hidden" novalidate>
+          <label class="field"><span>Full name <b>*</b></span>
+            <span class="input"><i data-i="user" class="sm"></i><input id="rgName" autocomplete="name" placeholder="e.g. Prashant Kumar" required></span></label>
+          <div class="grid-2">
+            <label class="field"><span>Email address</span>
+              <span class="input"><i data-i="mail" class="sm"></i><input id="rgEmail" type="email" autocomplete="email" placeholder="you@example.com"></span></label>
+            <label class="field"><span>Mobile number <b>*</b></span>
+              <span class="input"><i data-i="phone" class="sm"></i><input id="rgPhone" inputmode="tel" autocomplete="tel" placeholder="+91 98765 43210" required></span></label>
+            <label class="field"><span>Password <b>*</b></span>
+              <span class="input"><i data-i="lock" class="sm"></i><input id="rgPass" type="password" autocomplete="new-password" placeholder="min 8 characters" required><button type="button" class="eye" data-toggle="rgPass" aria-label="Show password"><i data-i="eye" class="sm"></i></button></span></label>
+            <label class="field"><span>Confirm password <b>*</b></span>
+              <span class="input"><i data-i="lock" class="sm"></i><input id="rgPass2" type="password" autocomplete="new-password" placeholder="repeat password" required><button type="button" class="eye" data-toggle="rgPass2" aria-label="Show password"><i data-i="eye" class="sm"></i></button></span></label>
+          </div>
+          <label class="row small" style="align-items:flex-start;gap:.5rem;margin-bottom:.6rem;flex-wrap:nowrap">
+            <input type="checkbox" id="rgAgree" style="margin-top:.25rem">
+            <span>I understand my profile, health records and contacts are stored <b>only on this device</b> and shared with a hospital only when I raise an emergency and consent.</span>
+          </label>
+          <p class="form-error" id="rgError" role="alert"></p>
+          <button class="b primary lg block" type="submit">Register as Citizen &amp; Continue <i data-i="arrow" class="sm"></i></button>
+        </form>
+      </section>
+
+      <!-- ───────── Hospital staff / admin ───────── -->
+      <section id="staffBox" class="hidden">
+        <div class="note-box" style="margin-bottom:1rem"><i data-i="lock" class="sm"></i> Staff accounts are issued by the hospital / State Health Department. There's no self-registration, so nobody can pose as a hospital.</div>
+        <form id="otpReqForm" novalidate>
+          <label class="field" id="hospField"><span>Hospital ID <b>*</b></span>
+            <span class="input"><i data-i="building" class="sm"></i><select id="hospitalId" required></select></span></label>
+          <label class="field"><span>Staff ID <b>*</b></span>
+            <span class="input"><i data-i="idcard" class="sm"></i><input id="staffId" autocomplete="username" placeholder="e.g. BANSAL-ED01" required></span></label>
+          <div id="quickLogin" class="hidden" style="margin:-.3rem 0 .9rem">
+            <span class="small muted">Demo staff accounts:</span>
+            <div class="row" id="quickList" style="gap:.35rem;margin-top:.3rem"></div>
+          </div>
+          <button class="b primary lg block" id="otpBtn" type="submit">Send OTP <i data-i="arrow" class="sm"></i></button>
+        </form>
+        <form id="otpForm" class="hidden" novalidate style="margin-top:1rem">
+          <p class="small" id="otpSent"></p>
+          <p class="otp-demo hidden" id="otpDemo"></p>
+          <label class="field"><span>6-digit OTP <b>*</b></span>
+            <span class="input"><i data-i="shield" class="sm"></i><input id="otp" inputmode="numeric" maxlength="6" autocomplete="one-time-code" placeholder="••••••" required></span></label>
+          <button class="b teal lg block" type="submit">Verify &amp; open hospital dashboard <i data-i="arrow" class="sm"></i></button>
+        </form>
+        <p class="form-error" id="stError" role="alert"></p>
+      </section>
+
+      <div class="auth-foot" id="authFoot"></div>
+    </div>
+
+    <p class="privacy-line">🔒 Citizen and hospital portals are completely separate: different logins, different sessions, and neither can see the other's private data. <a href="/report">Emergency? Report without logging in →</a></p>
+  </div>
+  <script type="module" src="/js/login.js"></script>
+</body>
+</html>

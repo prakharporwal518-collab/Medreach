@@ -14,6 +14,8 @@
     { "src": "/icons/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
   ],
   "shortcuts": [
-    { "name": "Hospital console", "url": "/hospital", "description": "Emergency desk: accept incoming patients and update bed status" }
+    { "name": "Report emergency", "url": "/report", "description": "Report an emergency – no login needed" },
+    { "name": "Citizen dashboard", "url": "/citizen", "description": "Your cases, nearby hospitals and health records" },
+    { "name": "Hospital dashboard", "url": "/hospital", "description": "Staff: referrals, beds and resources" }
   ]
 }
