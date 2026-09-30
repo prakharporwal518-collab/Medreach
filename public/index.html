@@ -3,147 +3,227 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>Sehat Setu – Emergency Help</title>
-  <meta name="description" content="AI emergency assistant: understands the emergency, finds a hospital that can treat it right now, gets acceptance and guides you there.">
-  <meta name="theme-color" content="#0b7a75">
+  <title>Sehat Setu – Right Hospital, Right Now</title>
+  <meta name="description" content="Sehat Setu understands a medical emergency, finds a hospital that can treat it right now, gets the hospital to accept before you travel, and guides you there.">
+  <meta name="theme-color" content="#121c2f">
   <link rel="manifest" href="/manifest.webmanifest">
   <link rel="icon" href="/icons/icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="/icons/icon.svg">
   <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans:wght@400;600;700;800&family=Noto+Sans+Devanagari:wght@400;600;700&display=swap">
-  <link rel="stylesheet" href="/vendor/leaflet/leaflet.css">
-  <link rel="stylesheet" href="/css/app.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Noto+Sans+Devanagari:wght@400;600;700&display=swap">
+  <link rel="stylesheet" href="/css/ui.css">
 </head>
-<body>
-  <header class="topbar">
-    <a class="brand" href="/">
-      <img src="/icons/icon.svg" alt="">
-      <span>Sehat Setu <small data-i18n="tagline"></small></span>
-    </a>
-    <span class="spacer"></span>
-    <div class="pill-toggle" role="group" aria-label="Language">
-      <button type="button" data-lang="en">EN</button>
-      <button type="button" data-lang="hi">हिं</button>
+<body class="ui">
+  <header class="lp-nav">
+    <div class="in">
+      <a class="brand-lg" href="/">
+        <img src="/icons/icon.svg" alt="">
+        <span><b>Sehat Setu</b><small>Care When It Matters</small></span>
+      </a>
+      <nav class="lp-links" aria-label="Sections">
+        <a href="#how">How it works</a>
+        <a href="#features">Technology</a>
+        <a href="#portals">Portals</a>
+        <a href="#privacy">Privacy</a>
+      </nav>
+      <span class="spacer"></span>
+      <a class="b ghost hide-sm" href="/login"><i data-i="login"></i> Sign in</a>
+      <a class="b danger" href="/report"><i data-i="siren"></i> Emergency</a>
     </div>
-    <a class="call-108" href="tel:108">📞 <span data-i18n="call108"></span></a>
   </header>
-  <div id="offline" class="offline-banner hidden" data-i18n="offline" role="status"></div>
-  <div id="demoBanner" class="demo-banner hidden" role="note"><b>DEMO</b> <span data-i18n="demoBanner"></span></div>
 
   <main>
-    <ol class="stepper" id="stepper" aria-hidden="true"></ol>
-    <p class="step-caption" id="stepCaption"></p>
-    <div id="alonePanel" class="alone-panel hidden" role="status" aria-live="polite"></div>
-    <div id="trackPage" class="hidden"></div>
-
-    <!-- ① SUDDEN EMERGENCY -->
-    <section id="step-0" class="step">
-      <div class="card">
-        <h1 class="hero-title" data-i18n="heroTitle"></h1>
-        <p class="muted" data-i18n="heroSub"></p>
-        <div class="mic-wrap">
-          <button id="micBtn" class="mic" type="button" aria-label="Speak">🎙️</button>
-          <span id="micLabel" class="mic-label" data-i18n="tapToSpeak"></span>
-        </div>
-        <textarea id="describe" class="describe" rows="3" aria-label="Describe the emergency"></textarea>
-        <h3 class="small muted" style="margin-top:.75rem" data-i18n="quickPick"></h3>
-        <div class="chips" id="chips"></div>
-      </div>
-
-      <div class="card alone-card">
-        <button id="aloneBtn" class="btn alone lg block" type="button">
-          <span data-i18n="aloneBtn"></span>
-        </button>
-        <p class="small muted" data-i18n="aloneSub" style="margin:.5rem 0 .25rem"></p>
-        <details class="contact">
-          <summary class="small" data-i18n="contactTitle"></summary>
-          <div id="contactBox" style="margin-top:.5rem"></div>
-        </details>
-      </div>
-
-      <div class="card">
-        <h3 class="small muted" data-i18n="addInfo"></h3>
-        <div class="attach-grid">
-          <label class="attach" id="photoAttach">
-            <strong data-i18n="photo"></strong><span data-i18n="photoHint"></span>
-            <input id="photoInput" type="file" accept="image/*" capture="environment" hidden>
-          </label>
-          <label class="attach" id="scanAttach">
-            <strong data-i18n="scan"></strong><span data-i18n="scanHint"></span>
-            <input id="scanInput" type="file" accept="image/*" hidden>
-          </label>
-        </div>
-        <div id="photoResult" class="small"></div>
-        <div id="scanResult" class="small"></div>
-        <div id="patientForm" class="hidden" style="margin-top:.75rem">
-          <h3 class="small" data-i18n="patientDetails"></h3>
-          <div class="form-grid">
-            <label>Name<input data-field="name"></label>
-            <label>Age<input data-field="age" inputmode="numeric"></label>
-            <label>Gender<input data-field="gender"></label>
-            <label>Blood group<input data-field="bloodGroup"></label>
-            <label>ABHA ID<input data-field="abhaId"></label>
-            <label>Ayushman ID<input data-field="ayushmanId"></label>
-            <label class="full">Known conditions<input data-field="conditions"></label>
-            <label class="full">Allergies<input data-field="allergies"></label>
-            <label class="full">Medicines<input data-field="medicines"></label>
+    <!-- ───────────── Hero ───────────── -->
+    <section class="lp-hero">
+      <div class="wrap">
+        <div>
+          <span class="eyebrow"><i data-i="star" class="sm"></i> MPOnline Hackathon 2026 · AI for Public Services</span>
+          <h1>The <em>right hospital</em>, right now, confirmed before you leave home.</h1>
+          <p class="lead">In an emergency, the nearest hospital may have no cardiologist on duty or no free ICU bed. Sehat Setu understands what happened (in Hindi or English), finds a hospital that can treat it <b>now</b>, and gets that hospital to <b>accept</b> the patient before anyone travels.</p>
+          <div class="cta-row">
+            <a class="b danger lg" href="/report"><i data-i="siren"></i> Report an emergency – no login</a>
+            <a class="b lg" href="/login?role=citizen"><i data-i="user"></i> Citizen login</a>
+            <a class="b lg" href="/login?role=staff"><i data-i="hospital"></i> Hospital staff</a>
+          </div>
+          <div class="trust">
+            <span><i data-i="check" class="sm"></i> Hindi &amp; English voice</span>
+            <span><i data-i="check" class="sm"></i> Works on weak networks</span>
+            <span><i data-i="check" class="sm"></i> Hospital confirms first</span>
+            <span><i data-i="check" class="sm"></i> 108 always one tap away</span>
           </div>
         </div>
+        <img class="hero-art" src="/img/hero.svg" alt="A phone showing Sehat Setu guiding an ambulance to a hospital that has accepted the patient" width="640" height="520">
       </div>
-
-      <div style="margin-top:1rem">
-        <button id="helpBtn" class="btn danger lg block" type="button" data-i18n="getHelp"></button>
-      </div>
-      <p class="small muted" style="text-align:center;margin-top:.75rem">
-        <button id="privacyBtn" class="linkish" type="button" data-i18n="privacyLink"></button>
-      </p>
     </section>
 
-    <!-- ② AI UNDERSTANDS WHAT IS HAPPENING -->
-    <section id="step-1" class="step hidden" aria-live="polite"></section>
+    <!-- ───────────── Live stats (from the real API) ───────────── -->
+    <section class="stats-strip" aria-label="Live network status">
+      <div class="wrap">
+        <div class="stat-big"><b id="sHosp">–</b><span>hospitals connected</span></div>
+        <div class="stat-big"><b id="sIcu">–</b><span>ICU beds reported free</span></div>
+        <div class="stat-big"><b id="sDocs">–</b><span>specialists on duty now</span></div>
+        <div class="stat-big"><b id="sFresh">–</b><span>verified in the last 15 min</span></div>
+        <p class="stats-note" id="statsNote">Live from the Sehat Setu hospital network.</p>
+      </div>
+    </section>
 
-    <!-- ③ GET USER LOCATION -->
-    <section id="step-2" class="step hidden">
-      <div class="card">
-        <div class="card-title"><span class="icon">📍</span><h2 data-i18n="yourLocation"></h2></div>
-        <p id="locStatus" class="small muted"></p>
-        <div id="locMap" class="map"></div>
-        <p class="small muted" data-i18n="tapMap"></p>
-        <div class="row">
-          <button id="demoLocBtn" class="btn ghost" type="button" data-i18n="useDemo"></button>
-          <span class="grow"></span>
-          <button id="confirmLocBtn" class="btn primary" type="button" data-i18n="confirmLoc"></button>
+    <!-- ───────────── Problem ───────────── -->
+    <section class="sec">
+      <div class="wrap">
+        <div class="sec-head">
+          <span class="kicker">The problem</span>
+          <h2>The golden hour is lost at the wrong hospital</h2>
+          <p>Families rush to the nearest hospital, find the specialist isn't there or the ICU is full, and lose precious time driving to a second one.</p>
+        </div>
+        <div class="problem-grid">
+          <div class="p-card"><div class="big">60 min</div><b>The golden hour</b><p class="muted">Heart attacks, strokes and major trauma need definitive care fast. Every detour costs lives.</p></div>
+          <div class="p-card"><div class="big">?</div><b>No live visibility</b><p class="muted">Citizens can't see which hospital has a cardiologist on duty, a working CT scanner or a free ICU bed right now.</p></div>
+          <div class="p-card"><div class="big">0</div><b>No confirmation</b><p class="muted">Patients arrive unannounced. There's no "we are ready for you" before the family leaves home.</p></div>
         </div>
       </div>
     </section>
 
-    <!-- ④ FIND SUITABLE HOSPITALS (capability + status → distance + ETA → options) -->
-    <section id="step-3" class="step hidden"></section>
+    <!-- ───────────── How it works ───────────── -->
+    <section class="sec alt" id="how">
+      <div class="wrap">
+        <div class="sec-head">
+          <span class="kicker">How it works</span>
+          <h2>Emergency → Understand → Match → Verify → Accept → Transport → Confirm</h2>
+          <p>AI understands the situation; a transparent, rule-based engine picks the hospital from staff-verified data; a real person at the hospital accepts.</p>
+        </div>
+        <div class="flow">
+          <div class="flow-step"><span class="f-ico"><i data-i="mic" class="lg"></i></span><b>Emergency</b><small>Speak, type or tap. Hindi, English or Hinglish.</small></div>
+          <div class="flow-step"><span class="f-ico"><i data-i="brain" class="lg"></i></span><b>Understand</b><small>AI extracts type, severity, red flags and needs.</small></div>
+          <div class="flow-step"><span class="f-ico"><i data-i="hospital" class="lg"></i></span><b>Match</b><small>Only hospitals with the right service live now.</small></div>
+          <div class="flow-step"><span class="f-ico"><i data-i="shield" class="lg"></i></span><b>Verify</b><small>Beds and staff verified minutes ago, with the source shown.</small></div>
+          <div class="flow-step"><span class="f-ico"><i data-i="check" class="lg"></i></span><b>Accept</b><small>Hospital staff accept and assign a bay.</small></div>
+          <div class="flow-step"><span class="f-ico"><i data-i="ambulance" class="lg"></i></span><b>Transport</b><small>Ambulance or own vehicle, with navigation.</small></div>
+          <div class="flow-step"><span class="f-ico"><i data-i="pin" class="lg"></i></span><b>Confirm</b><small>Confirmed destination, family kept informed.</small></div>
+        </div>
+      </div>
+    </section>
 
-    <!-- ⑤ HOSPITAL CONFIRMS ACCEPTANCE -->
-    <section id="step-4" class="step hidden" aria-live="polite"></section>
+    <!-- ───────────── Technologies ───────────── -->
+    <section class="sec" id="features">
+      <div class="wrap">
+        <div class="sec-head">
+          <span class="kicker">Technology</span>
+          <h2>Every suggested technology, used where it helps</h2>
+          <p>Built for Madhya Pradesh: voice-first, bilingual and dependable on weak networks.</p>
+        </div>
+        <div class="feat-grid">
+          <div class="feat"><span class="f-badge" style="background:var(--violet-soft);color:var(--violet)"><i data-i="brain" class="lg"></i></span><h3>Generative AI</h3><p>Understands panicked, mixed-language descriptions and writes an SBAR handover note for the ER doctor.</p></div>
+          <div class="feat"><span class="f-badge" style="background:var(--red-soft);color:var(--red)"><i data-i="mic" class="lg"></i></span><h3>Voice bot</h3><p>Speak in Hindi or English. Acceptance, safety steps and directions are read aloud.</p></div>
+          <div class="feat"><span class="f-badge" style="background:var(--primary-soft);color:var(--primary)"><i data-i="camera" class="lg"></i></span><h3>Computer vision</h3><p>A photo of the injury or scene adds evidence (bleeding, burns, bites) to the triage.</p></div>
+          <div class="feat"><span class="f-badge" style="background:var(--amber-soft);color:var(--amber)"><i data-i="scan" class="lg"></i></span><h3>OCR</h3><p>Scan an Ayushman / ABHA card or prescription on the phone to pre-fill patient details.</p></div>
+          <div class="feat"><span class="f-badge" style="background:var(--green-soft);color:var(--green)"><i data-i="chart" class="lg"></i></span><h3>Predictive analytics</h3><p>Traffic-aware ETA, chance of a free bed on arrival, ER wait and arrival forecasts.</p></div>
+          <div class="feat"><span class="f-badge" style="background:var(--teal-soft);color:var(--teal)"><i data-i="activity" class="lg"></i></span><h3>Conversational AI</h3><p>Asks one question at a time (conscious? breathing?) and re-assesses after each answer.</p></div>
+          <div class="feat"><span class="f-badge" style="background:var(--primary-soft);color:var(--primary)"><i data-i="wifi" class="lg"></i></span><h3>Mobile &amp; offline</h3><p>Installable app. Triage and hospital matching still work when the network drops.</p></div>
+          <div class="feat"><span class="f-badge" style="background:var(--red-soft);color:var(--red)"><i data-i="users" class="lg"></i></span><h3>“I'm alone” mode</h3><p>One tap shares location, alerts your trusted contact and requests a hospital and an ambulance.</p></div>
+        </div>
+      </div>
+    </section>
 
-    <!-- ⑥ TRANSPORT -->
-    <section id="step-5" class="step hidden"></section>
+    <!-- ───────────── Two portals ───────────── -->
+    <section class="sec alt" id="portals">
+      <div class="wrap">
+        <div class="sec-head">
+          <span class="kicker">Two separate portals</span>
+          <h2>One for citizens, one for hospitals, kept private from each other</h2>
+          <p>Separate logins, separate sessions and separate data. Hospitals only ever see a patient's details after the family consents, with ID numbers masked.</p>
+        </div>
+        <div class="portal-grid">
+          <article class="portal">
+            <img src="/img/citizens.svg" alt="A family using the citizen app">
+            <div class="body">
+              <h3>Citizen portal</h3>
+              <ul>
+                <li><i data-i="check" class="sm"></i> Report an emergency and follow it live</li>
+                <li><i data-i="check" class="sm"></i> Nearby hospitals with verified beds &amp; specialists</li>
+                <li><i data-i="check" class="sm"></i> Health records &amp; emergency contacts, stored on your phone only</li>
+                <li><i data-i="check" class="sm"></i> My cases, ambulance help and 108 in one place</li>
+              </ul>
+              <a class="b primary" href="/login?role=citizen">Citizen login <i data-i="arrow" class="sm"></i></a>
+            </div>
+          </article>
+          <article class="portal">
+            <img src="/img/hospital.svg" alt="A doctor at the hospital emergency console">
+            <div class="body">
+              <h3>Hospital staff portal</h3>
+              <ul>
+                <li><i data-i="check" class="sm"></i> Accept or decline referrals with an AI pre-arrival note</li>
+                <li><i data-i="check" class="sm"></i> Keep beds, ICU, ventilators and duty roster verified</li>
+                <li><i data-i="check" class="sm"></i> Hospital ID + Staff ID + OTP, role-based access</li>
+                <li><i data-i="check" class="sm"></i> Audit log of every action, arrival forecasts</li>
+              </ul>
+              <a class="b teal" href="/login?role=staff">Hospital staff login <i data-i="arrow" class="sm"></i></a>
+            </div>
+          </article>
+        </div>
+      </div>
+    </section>
 
-    <!-- ⑦ NAVIGATION -->
-    <section id="step-6" class="step hidden"></section>
+    <!-- ───────────── I'm alone ───────────── -->
+    <section class="sec">
+      <div class="wrap split">
+        <img src="/img/alone.svg" alt="A person alone at home pressing the SOS button">
+        <div>
+          <span class="kicker" style="color:var(--red);font-weight:700;font-size:.82rem;letter-spacing:.1em">FOR PEOPLE LIVING ALONE</span>
+          <h2 style="font-size:2rem;margin-top:.4rem">One tap. Everything else happens automatically.</h2>
+          <p class="muted" style="font-size:1.02rem">For elderly people and anyone living alone: pressing <b>I'm alone</b> does everything without further questions.</p>
+          <ul style="padding-left:1.1rem;color:var(--ink-2);line-height:1.9">
+            <li>Shares your location</li>
+            <li>Notifies your trusted contact with a live tracking link (status only, no medical details)</li>
+            <li>Finds and requests a suitable hospital</li>
+            <li>Requests an ambulance once the hospital accepts</li>
+          </ul>
+          <a class="b danger lg" href="/report#alone"><i data-i="siren"></i> Try I'm alone</a>
+        </div>
+      </div>
+    </section>
 
-    <!-- ⑧ CONFIRMED HOSPITAL -->
-    <section id="step-7" class="step hidden"></section>
+    <!-- ───────────── Privacy ───────────── -->
+    <section class="sec alt" id="privacy">
+      <div class="wrap">
+        <div class="sec-head">
+          <span class="kicker">Privacy by design</span>
+          <h2>Sensitive health data, handled carefully</h2>
+        </div>
+        <div class="priv-grid">
+          <div class="priv"><i data-i="lock"></i><div><b>Minimum data</b><span>Only the emergency summary and location go to the hospital you choose.</span></div></div>
+          <div class="priv"><i data-i="check"></i><div><b>Consent first</b><span>Patient details are shared only if you tick the consent box.</span></div></div>
+          <div class="priv"><i data-i="idcard"></i><div><b>Masked IDs</b><span>Hospitals see ABHA / Ayushman numbers as ••••1203.</span></div></div>
+          <div class="priv"><i data-i="users"></i><div><b>Separate portals</b><span>Citizen and staff logins and sessions never mix.</span></div></div>
+          <div class="priv"><i data-i="file"></i><div><b>Audit trail</b><span>Every staff action is logged with who, role and time.</span></div></div>
+          <div class="priv"><i data-i="clock"></i><div><b>Auto-expiry</b><span>Personal details are deleted 24 hours after hand-over.</span></div></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ───────────── Final CTA ───────────── -->
+    <section class="sec">
+      <div class="wrap">
+        <div class="cta-band">
+          <div>
+            <h2>In an emergency?</h2>
+            <p>Report it now – no account needed. For life-threatening emergencies, call 108 immediately.</p>
+            <div class="cta-row" style="margin-bottom:0">
+              <a class="b lg" href="tel:108" style="color:#be123c"><i data-i="phone"></i> Call 108</a>
+              <a class="b lg" href="/report" style="background:transparent;color:#fff;border-color:#fecdd3"><i data-i="siren"></i> Report emergency</a>
+            </div>
+          </div>
+          <img src="/img/ambulance.svg" alt="An ambulance on its way">
+        </div>
+      </div>
+    </section>
   </main>
 
-  <dialog id="privacyDialog" class="dialog">
-    <h2 data-i18n="privacyTitle"></h2>
-    <ul id="privacyList" class="small"></ul>
-    <button class="btn primary" type="button" data-close>OK</button>
-  </dialog>
-  <dialog id="trackDialog" class="dialog wide">
-    <div id="trackBody"></div>
-    <button class="btn" type="button" data-close>✕</button>
-  </dialog>
-
-  <script src="/vendor/leaflet/leaflet.js"></script>
-  <script type="module" src="/js/app.js"></script>
+  <footer class="lp-foot">
+    <div class="wrap">
+      <span>© 2026 Sehat Setu · Built for the MPOnline Idea &amp; Innovation Hackathon</span>
+      <span id="demoFoot">Prototype: hospital data, SMS and ambulance dispatch are simulated. Always call 108 in an emergency.</span>
+    </div>
+  </footer>
+  <script type="module" src="/js/landing.js"></script>
 </body>
 </html>

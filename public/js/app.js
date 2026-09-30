@@ -21,6 +21,7 @@ import { EMERGENCIES, FOLLOW_UPS } from '/shared/triage.js';
 import { capLabel, CAPABILITIES } from '/shared/capabilities.js';
 import { haversineKm } from '/shared/predict.js';
 import { freshness, freshnessLabel, ago } from '/shared/freshness.js';
+import * as citizen from './citizen-store.js';
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -564,6 +565,13 @@ async function requestHospital(option) {
         text: state.text,
       });
       state.trackToken = state.caseData.trackToken;
+      // Signed-in citizens can follow the case later from "My Cases" (read-only tracking token only).
+      if (citizen.current()) {
+        citizen.addCase({
+          id: state.caseData.id, trackToken: state.trackToken, label: state.triage.label, icon: state.triage.icon,
+          severity: state.triage.severity, createdAt: new Date().toISOString(),
+        });
+      }
       if (state.contact) aloneMark('contact');
       openStream(state.caseData.id);
     }
@@ -767,7 +775,7 @@ let watchId = null;
 function trackUrl() {
   if (!state.caseData || !state.trackToken) return '';
   const origin = /^https?:/.test(location.origin) ? location.origin : 'https://sehat-setu.example';
-  return `${origin}/?track=${encodeURIComponent(state.caseData.id)}&t=${encodeURIComponent(state.trackToken)}`;
+  return `${origin}/report?track=${encodeURIComponent(state.caseData.id)}&t=${encodeURIComponent(state.trackToken)}`;
 }
 
 async function showNavigation() {
@@ -943,6 +951,21 @@ async function boot() {
   if (state.config.dataMode !== 'live') $('#demoBanner').classList.remove('hidden');
   if (state.config.offline || !navigator.onLine) setOffline(true);
 
+  // Signed-in citizen: link to the dashboard and pre-fill saved health details and
+  // primary contact (still shared with a hospital only if the consent box is ticked).
+  const me = citizen.current();
+  if (me) {
+    $('#portalLink').textContent = `👤 ${me.name.split(' ')[0]} · Dashboard`;
+    $('#portalLink').href = '/citizen';
+    const prof = citizen.profile();
+    const h = prof.health || {};
+    if (Object.values(h).some((v) => (Array.isArray(v) ? v.length : v))) {
+      state.patient = { name: me.name, ...h };
+      fillPatientForm();
+    }
+    if (prof.contacts?.[0]) { state.contact = { name: prof.contacts[0].name, phone: prof.contacts[0].phone }; renderContact(); }
+  }
+
   for (const b of document.querySelectorAll('[data-lang]')) {
     b.onclick = () => {
       state.lang = b.dataset.lang;
@@ -968,6 +991,7 @@ async function boot() {
   $('#describe').addEventListener('keydown', (e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) runTriage(); });
   $('#demoLocBtn').onclick = () => { $('#locStatus').textContent = state.config.demoLocation?.label || ''; setLocation(state.config.demoLocation, 'demo'); };
   $('#confirmLocBtn').onclick = () => findHospitals();
+  if (location.hash === '#alone') startAlone();
 
   try {
     if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});

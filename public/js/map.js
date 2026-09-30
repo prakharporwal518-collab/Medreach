@@ -13,7 +13,10 @@ export function createMap(el, center, zoom = 13) {
     attribution: '&copy; OpenStreetMap contributors',
   }).addTo(map);
   // Leaflet needs a size recalculation when its container was hidden.
-  setTimeout(() => map.invalidateSize(), 50);
+  // (Skipped if the map was removed meanwhile, e.g. the user switched views.)
+  let removed = false;
+  map.on('unload', () => { removed = true; });
+  setTimeout(() => { if (!removed) map.invalidateSize(); }, 50);
   return map;
 }
 

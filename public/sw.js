@@ -3,10 +3,13 @@
 // understood and hospitals suggested (from the last saved status) without
 // internet. API calls are network-first with a cached fallback.
 
-const VERSION = 'sehat-v2';
+const VERSION = 'sehat-v3';
 const SHELL = [
-  '/', '/index.html', '/hospital.html', '/css/app.css', '/manifest.webmanifest', '/icons/icon.svg',
+  '/', '/index.html', '/report', '/report.html', '/login', '/login.html', '/citizen', '/citizen.html', '/hospital', '/hospital.html',
+  '/css/app.css', '/css/ui.css', '/manifest.webmanifest', '/icons/icon.svg',
+  '/img/hero.svg', '/img/citizens.svg', '/img/hospital.svg', '/img/alone.svg', '/img/ambulance.svg',
   '/js/app.js', '/js/api.js', '/js/i18n.js', '/js/voice.js', '/js/vision.js', '/js/ocr.js', '/js/map.js', '/js/hospital.js',
+  '/js/icons.js', '/js/landing.js', '/js/login.js', '/js/citizen.js', '/js/citizen-store.js',
   '/shared/triage.js', '/shared/matching.js', '/shared/predict.js', '/shared/capabilities.js', '/shared/ocr-parse.js',
   '/shared/freshness.js', '/shared/roles.js', '/shared/handover.js',
   '/vendor/leaflet/leaflet.css', '/vendor/leaflet/leaflet.js',
@@ -37,7 +40,7 @@ self.addEventListener('fetch', (event) => {
           if (res.ok) { const copy = res.clone(); caches.open(VERSION).then((c) => c.put(request, copy)); }
           return res;
         })
-        .catch(() => caches.match(request).then((hit) => hit || caches.match('/index.html'))),
+        .catch(() => caches.match(request).then((hit) => hit || caches.match('/report.html'))),
     );
     return;
   }

@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 360 260" role="img" aria-labelledby="t">
+  <title id="t">A person alone at home pressing the I'm alone SOS button</title>
+  <defs><filter id="s" x="-40%" y="-40%" width="180%" height="180%"><feDropShadow dx="0" dy="8" stdDeviation="9" flood-color="#0f172a" flood-opacity=".18"/></filter></defs>
+  <circle cx="180" cy="130" r="118" fill="#fff1f3"/>
+  <circle cx="180" cy="130" r="92" fill="none" stroke="#fecdd3" stroke-width="3" stroke-dasharray="6 8"/>
+  <!-- sofa -->
+  <rect x="70" y="160" width="220" height="50" rx="16" fill="#94a3b8"/><rect x="84" y="138" width="192" height="36" rx="12" fill="#cbd5e1"/>
+  <rect x="80" y="208" width="10" height="18" fill="#64748b"/><rect x="270" y="208" width="10" height="18" fill="#64748b"/>
+  <!-- person -->
+  <circle cx="158" cy="96" r="24" fill="#d9a47f"/>
+  <path d="M134 92c0-18 12-26 24-26s24 8 24 22c-10-6-30-6-48 4z" fill="#9ca3af"/>
+  <path d="M120 176v-36c0-22 17-38 38-38s38 16 38 38v36z" fill="#7c3aed"/>
+  <path d="M184 134c10 8 22 10 34 6" stroke="#d9a47f" stroke-width="12" stroke-linecap="round" fill="none"/>
+  <!-- phone with SOS -->
+  <g transform="translate(212 104)" filter="url(#s)">
+    <rect width="48" height="80" rx="9" fill="#0f172a"/><rect x="4" y="6" width="40" height="68" rx="6" fill="#fff"/>
+    <circle cx="24" cy="40" r="15" fill="#e11d48"/>
+    <text x="24" y="44" text-anchor="middle" font-family="Inter, Arial" font-size="9" font-weight="900" fill="#fff">SOS</text>
+  </g>
+  <!-- signal waves -->
+  <path d="M276 104a26 26 0 0 1 0 40M290 94a42 42 0 0 1 0 60" stroke="#e11d48" stroke-width="4" fill="none" stroke-linecap="round"/>
+  <!-- notified badges -->
+  <g transform="translate(40 40)" filter="url(#s)"><rect width="104" height="30" rx="10" fill="#fff"/><circle cx="16" cy="15" r="7" fill="#16a34a"/><text x="30" y="19" font-family="Inter, Arial" font-size="10" font-weight="700" fill="#0f172a">Family notified</text></g>
+  <g transform="translate(222 30)" filter="url(#s)"><rect width="112" height="30" rx="10" fill="#fff"/><circle cx="16" cy="15" r="7" fill="#2563eb"/><text x="30" y="19" font-family="Inter, Arial" font-size="10" font-weight="700" fill="#0f172a">Hospital requested</text></g>
+</svg>

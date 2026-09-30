@@ -3,121 +3,81 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Sehat Setu – Hospital Console</title>
-  <meta name="description" content="Emergency desk console: authorised staff receive referrals with an AI pre-arrival summary, accept patients and keep bed and specialist status verified.">
-  <meta name="theme-color" content="#0b7a75">
+  <title>Sehat Setu – Hospital Dashboard</title>
+  <meta name="description" content="Hospital emergency dashboard for authorised staff: referrals with AI pre-arrival notes, bed and resource status, duty roster, reports and audit log.">
+  <meta name="theme-color" content="#121c2f">
   <link rel="icon" href="/icons/icon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans:wght@400;600;700;800&display=swap">
-  <link rel="stylesheet" href="/css/app.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap">
+  <link rel="stylesheet" href="/vendor/leaflet/leaflet.css">
+  <link rel="stylesheet" href="/css/ui.css">
 </head>
-<body>
-  <header class="topbar">
-    <a class="brand" href="/hospital">
-      <img src="/icons/icon.svg" alt="">
-      <span>Sehat Setu <small>Hospital emergency console</small></span>
-    </a>
-    <span class="spacer"></span>
-    <div id="whoami" class="whoami hidden"></div>
-    <span id="conn" class="badge hidden" title="Live connection">● live</span>
-  </header>
-  <div id="demoBanner" class="demo-banner hidden" role="note"><b>DEMO</b> Hospitals, staff and figures are simulated. OTP is shown on screen because there is no SMS gateway in the prototype.</div>
-
-  <!-- ─────────────── Staff login: Hospital ID + Staff ID + OTP ─────────────── -->
-  <main id="loginView" class="console">
-    <div class="card login-card">
-      <h2>🔐 Authorised staff login</h2>
-      <p class="small muted">Only authorised hospital staff can accept referrals or change what citizens see. Every action is audit-logged.</p>
-      <form id="loginForm" autocomplete="off">
-        <label>Hospital ID
-          <select id="hospitalId" class="inp" required></select>
-        </label>
-        <label>Staff ID
-          <input id="staffId" class="inp" placeholder="e.g. BANSAL-ED01" required>
-        </label>
-        <div id="quickLogin" class="hidden" style="margin:-.25rem 0 .75rem">
-          <span class="small muted">Demo staff for this hospital:</span>
-          <div class="quick-login" id="quickList"></div>
+<body class="ui">
+  <!-- Shown when this tab has no staff session -->
+  <div id="gate" class="auth-bg hidden">
+    <a class="auth-brand" href="/"><img src="/icons/icon.svg" alt=""><span><b>SEHAT SETU</b><small>HOSPITAL STAFF PORTAL</small></span></a>
+    <div class="auth-card">
+      <h1>Staff sign-in required</h1>
+      <p class="lead">This dashboard is only for authorised hospital staff. Sign in with Hospital ID + Staff ID + OTP.</p>
+      <a class="b teal lg block" href="/login?role=staff"><i data-i="login"></i> Go to staff sign-in</a>
+      <div id="demoGate" class="hidden" style="margin-top:1.2rem">
+        <div class="note-box">
+          <b>Demo quick sign-in</b> (the real OTP flow runs; the OTP is shown only because the prototype has no SMS gateway)
+          <label class="field" style="margin-top:.6rem"><span>Hospital</span><span class="input"><select id="gateHospital"></select></span></label>
+          <div class="row" id="gateRoles"></div>
         </div>
-        <button class="btn primary block" id="otpBtn" type="submit">Send OTP</button>
-      </form>
-      <form id="otpForm" class="hidden" autocomplete="one-time-code" style="margin-top:1rem">
-        <p class="small" id="otpSent"></p>
-        <p class="otp-demo hidden" id="otpDemo"></p>
-        <label>6-digit OTP
-          <input id="otp" class="inp" inputmode="numeric" maxlength="6" pattern="\d{6}" required>
-        </label>
-        <button class="btn primary block" type="submit">Verify & log in</button>
-      </form>
-      <p class="small redflag" id="loginError" role="alert"></p>
-      <details class="small"><summary>Roles & permissions</summary>
-        <table class="kv">
-          <tr><td>Hospital Nodal Officer</td><td>Everything for this hospital + audit log</td></tr>
-          <tr><td>Emergency Desk Officer</td><td>Accept / decline referrals, ER open/busy/diverting, confirm figures</td></tr>
-          <tr><td>Resource Manager</td><td>Beds, specialists on duty, equipment, confirm figures</td></tr>
-          <tr><td>State Health Admin</td><td>Read-only oversight of all hospitals + audit logs</td></tr>
-        </table>
-      </details>
+      </div>
+      <div class="auth-foot">Patient or family member? <a href="/login?role=citizen">Citizen sign-in</a></div>
     </div>
-  </main>
+  </div>
 
-  <!-- ─────────────── Authorised dashboard ─────────────── -->
-  <main id="consoleView" class="console hidden">
-    <div class="row spread" style="margin-bottom:.5rem">
-      <h2 id="hospitalTitle" style="margin:0"></h2>
-      <select id="adminHospital" class="inp hidden" aria-label="Hospital (admin view)"></select>
-    </div>
-    <div class="console-grid">
-      <aside class="stack">
-        <div class="card">
-          <div class="row spread"><h2 style="margin:0">Live status</h2></div>
-          <div class="verified-line" id="verifiedLine"></div>
-          <label class="small">Emergency department
-            <select id="erStatus" style="width:100%;padding:.45rem;border-radius:8px;border:1px solid var(--line);background:var(--surface);margin:.25rem 0 .75rem">
-              <option value="open">🟢 Open – accepting</option>
-              <option value="busy">🟠 Busy – accepting critical only</option>
-              <option value="diverting">🔴 Diverting – full</option>
-            </select>
-          </label>
-          <div class="stat-grid" id="beds"></div>
-          <button class="btn block" id="verifyBtn" type="button" style="margin-top:.75rem">✅ Confirm all figures are current</button>
-          <p class="small muted" style="margin:.4rem 0 0">Citizens see “Verified N min ago”. After 60 min without confirmation the app shows <b>availability unverified</b>.</p>
-        </div>
-        <div class="card">
-          <h3>Specialists on duty now</h3>
-          <div class="toggle-list" id="onDuty"></div>
-          <h3 style="margin-top:.75rem">Equipment working</h3>
-          <div class="toggle-list" id="equipment"></div>
-        </div>
-        <div class="card">
-          <h3>Predicted ER arrivals · next 8 hours</h3>
-          <p class="small muted">Poisson model on hour-of-day pattern – plan staff ahead.</p>
-          <div class="chart" id="forecast" role="img" aria-label="Forecast of emergency arrivals"></div>
-          <div class="chart-x" id="forecastX"></div>
-          <details class="small" style="margin-top:.5rem"><summary>Table view</summary><table id="forecastTable" style="width:100%;font-size:.8rem"></table></details>
-        </div>
-      </aside>
+  <div class="shell hidden" id="app">
+    <aside class="side" id="side" aria-label="Hospital navigation">
+      <a class="logo" href="/"><img src="/icons/icon.svg" alt=""><span><b>Sehat Setu</b><small>Emergency · Care · Support</small></span></a>
+      <nav class="nav" id="nav">
+        <button class="nav-item" data-view="dashboard"><i data-i="home"></i> Dashboard</button>
+        <button class="nav-item" data-view="cases"><i data-i="siren"></i> Emergency Cases <span class="count hidden" id="pendingCount"></span></button>
+        <button class="nav-item" data-view="queue"><i data-i="users"></i> Patient Queue</button>
+        <button class="nav-item" data-view="beds"><i data-i="bed"></i> Bed Management</button>
+        <button class="nav-item" data-view="staff"><i data-i="stethoscope"></i> Doctors &amp; Staff</button>
+        <button class="nav-item" data-view="resources"><i data-i="box"></i> Resources</button>
+        <button class="nav-item" data-view="reports"><i data-i="chart"></i> Reports</button>
+        <button class="nav-item" data-view="audit" id="navAudit"><i data-i="file"></i> Audit Log</button>
+        <button class="nav-item" data-view="profile"><i data-i="user"></i> Profile</button>
+        <button class="nav-item" data-view="settings"><i data-i="settings"></i> Settings</button>
+      </nav>
+      <div class="side-foot">
+        <div class="online-card"><b><span class="dot green" id="liveDot"></span> <span id="liveText">Hospital Online</span></b><span id="lastUpdated">–</span></div>
+        <button class="nav-item" id="logoutSide"><i data-i="logout"></i> Logout</button>
+      </div>
+    </aside>
 
-      <section class="stack" id="casesCol">
-        <div class="card">
-          <h2>🚨 Incoming referral requests</h2>
-          <div id="incoming"><p class="empty">No pending requests. Open the <a href="/" target="_blank">citizen app</a> in another tab to create one.</p></div>
-        </div>
-        <div class="card">
-          <h2>🚑 Accepted & on the way</h2>
-          <div id="active"><p class="empty">None yet.</p></div>
-        </div>
-        <div class="card hidden" id="auditCard">
-          <h2>🧾 Audit log</h2>
-          <p class="small muted">Who did what, when – logins, status changes, referral decisions, denied access attempts.</p>
-          <div class="audit-wrap"><table class="audit" id="audit"></table></div>
-        </div>
-        <div class="card">
-          <h3>Recent</h3>
-          <div id="history" class="small"><p class="muted">—</p></div>
-        </div>
-      </section>
+    <div class="main">
+      <header class="topbar">
+        <button class="menu-btn" id="menuBtn" aria-label="Open menu"><i data-i="menu"></i></button>
+        <span class="loc-pill" id="hospPill"><i data-i="building" class="sm"></i><span id="hospName">–</span></span>
+        <span class="input hidden" id="adminPick" style="min-height:40px"><i data-i="building" class="sm"></i><select id="adminHospital" aria-label="Hospital (admin view)"></select></span>
+        <span class="spacer"></span>
+        <span class="pill gray" id="clock"></span>
+        <button class="icon-btn" id="bellBtn" aria-label="Pending referrals"><i data-i="bell"></i><span class="badge-dot hidden" id="bellCount"></span></button>
+        <button class="user-chip" id="userBtn"><span class="avatar" id="avatar">–</span><span class="who"><b id="userName">–</b><small id="userRole">–</small></span><i data-i="down" class="sm"></i></button>
+      </header>
+      <div class="demo-strip hidden" id="demoStrip"><b>DEMO</b> Hospitals, staff and figures are simulated. OTP is shown on screen because there is no SMS gateway in the prototype.</div>
+      <div class="dropdown hidden" id="userMenu" role="menu">
+        <p class="note" id="sessionNote"></p>
+        <button data-go="profile"><i data-i="user" class="sm"></i> Profile &amp; permissions</button>
+        <button data-go="settings"><i data-i="settings" class="sm"></i> Settings</button>
+        <button id="logoutBtn"><i data-i="logout" class="sm"></i> Log out</button>
+      </div>
+      <main class="page" id="view" aria-live="polite"></main>
     </div>
-  </main>
+  </div>
+
+  <dialog class="modal" id="caseModal">
+    <div class="m-head"><h3 id="mTitle" style="margin:0">Referral</h3><button class="b sm ghost" data-close aria-label="Close"><i data-i="x" class="sm"></i></button></div>
+    <div class="m-body" id="mBody"></div>
+  </dialog>
+  <div class="toast" id="toast" role="status"></div>
+  <script src="/vendor/leaflet/leaflet.js"></script>
   <script type="module" src="/js/hospital.js"></script>
 </body>
 </html>

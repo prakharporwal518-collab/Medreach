@@ -48,24 +48,31 @@ const leafletJs = read('node_modules/leaflet/dist/leaflet.js');
 const iconSvg = read('public/icons/icon.svg');
 const iconUri = `data:image/svg+xml;base64,${Buffer.from(iconSvg).toString('base64')}`;
 
+const uiCss = read('public/css/ui.css');
+
+// Page body (with its <body> attributes); links to other pages are neutralised
+// because each frame is a single embedded document.
 const bodyOf = (file) => {
-  const html = read(file);
-  return html.slice(html.indexOf('<body>') + 6, html.indexOf('</body>'))
-    .replace(/<script\b[\s\S]*?<\/script>/g, '')
-    .replaceAll('/icons/icon.svg', iconUri)
-    .replace(/href="\/(hospital)?"/g, 'href="#"');
+  const m = /<body([^>]*)>([\s\S]*)<\/body>/.exec(read(file));
+  return {
+    attrs: m[1],
+    html: m[2]
+      .replace(/<script\b[\s\S]*?<\/script>/g, '')
+      .replaceAll('/icons/icon.svg', iconUri)
+      .replace(/href="\/[^"]*"/g, 'href="#"'),
+  };
 };
 
-const page = (title, body, scripts, styles = '') => `<!doctype html>
+const page = (title, body, scripts, styles) => `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${title}</title>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans:wght@400;600;700;800&family=Noto+Sans+Devanagari:wght@400;600;700&display=swap">
-<style>${styles}</style><style>${css}</style></head>
-<body>${body}${scripts.map((s) => `<script>${s}</script>`).join('')}</body></html>`;
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Noto+Sans:wght@400;600;700;800&family=Noto+Sans+Devanagari:wght@400;600;700&display=swap">
+${styles.map((st) => `<style>${st}</style>`).join('')}</head>
+<body${body.attrs}>${body.html}${scripts.map((sc) => `<script>${sc}</script>`).join('')}</body></html>`;
 
 const templates = {
-  citizen: page('Sehat Setu', bodyOf('public/index.html'), [leafletJs, shimJs, appJs], leafletCss),
-  hospital: page('Sehat Setu – Hospital Console', bodyOf('public/hospital.html'), [shimJs, hospitalJs]),
+  citizen: page('Sehat Setu – Emergency', bodyOf('public/report.html'), [leafletJs, shimJs, appJs], [leafletCss, css]),
+  hospital: page('Sehat Setu – Hospital Dashboard', bodyOf('public/hospital.html'), [leafletJs, shimJs, hospitalJs], [leafletCss, uiCss]),
 };
 // Safe to embed inside <script>: no "</" or "<!--" sequences.
 const templatesJs = `window.__TPL=${JSON.stringify(templates).replace(/<\//g, '<\\/').replace(/<!--/g, '<\\!--')};`;
@@ -179,7 +186,8 @@ iframe { width: 100%; height: 100%; border: 0; display: block; }
     }
   };
   server.hooks.afterRequest = function (hospitalId, waitingForHuman) {
-    if (!waitingForHuman) return;
+    // On wide screens the console is visible and shows its own alert.
+    if (!waitingForHuman || !narrow.matches) return;
     var h = server.store.getHospital(hospitalId);
     toast('🔔 ' + h.name + ' received the referral – you are logged in as its Emergency Desk Officer: accept it in the console');
   };
