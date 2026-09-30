@@ -946,6 +946,8 @@ async function bootTrackPage(id, token) {
 
 // ------------------------------------------------------------------ boot
 async function boot() {
+  // Embedded in the citizen dashboard: the dashboard already shows branding & navigation.
+  if (new URLSearchParams(location.search).get('embed') === '1' || window.self !== window.top) document.body.classList.add('embedded');
   state.config = await api.getConfig();
   applyI18n();
   if (state.config.dataMode !== 'live') $('#demoBanner').classList.remove('hidden');

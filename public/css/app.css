@@ -346,3 +346,5 @@ button:disabled, .stepper-btns button:disabled, .chip:disabled { opacity: .45; c
 /* Link to the citizen portal from the emergency flow */
 .portal-link { font-size: .85rem; font-weight: 600; text-decoration: none; color: var(--brand); border: 1px solid var(--line); border-radius: 999px; padding: .3rem .7rem; white-space: nowrap; }
 @media (max-width: 480px) { .portal-link { display: none; } }
+body.embedded .topbar .brand, body.embedded #portalLink { display: none; }
+body.embedded main { padding-top: .75rem; }

@@ -6,7 +6,7 @@
 import { icon, esc, initials, greeting, hydrateIcons } from './icons.js';
 import * as citizen from './citizen-store.js';
 import * as api from './api.js';
-import { createMap, marker } from './map.js';
+import { LiveMap, statusKind, legend } from './livemap.js';
 import { roadKm } from '/shared/predict.js';
 import { freshness, freshnessLabel, ago } from '/shared/freshness.js';
 import { capLabel, SPECIALIST_CAPS } from '/shared/capabilities.js';
@@ -22,6 +22,12 @@ const state = {
   config: { dataMode: 'demo' },
   loc: (() => { try { return JSON.parse(sessionStorage.getItem('sehat.loc')) || DEMO; } catch { return DEMO; } })(),
   track: new Map(), // caseId -> trackView (or { gone: true })
+  trackES: new Map(), // caseId -> live tracking stream (active cases only)
+  hosES: null, // live hospital-status stream
+  eta0: {}, // first ETA seen per case, to estimate how far along the vehicle is
+  caseES: new Map(), // caseId -> owner stream (real ambulance position; needs this tab's case token)
+  vpos: new Map(), // caseId -> { lat, lng } live ambulance position
+  openCases: new Set(),
   map: null,
   filter: 'all',
   q: '',
@@ -66,6 +72,7 @@ async function refreshTracking() {
     try { state.track.set(c.id, await api.getTrack(c.id, c.trackToken)); } catch { state.track.set(c.id, { gone: true }); }
   }));
   renderBadges();
+  syncTrackStreams();
 }
 
 function renderBadges() {
@@ -76,19 +83,148 @@ function renderBadges() {
   $('#bellCount').classList.toggle('hidden', !n);
 }
 
-function destroyMap() { if (state.map) { state.map.remove(); state.map = null; } }
+function destroyMap() { if (state.map) { state.map.destroy(); state.map = null; } }
+
+const statusText = (h) => ({ open: 'Open', busy: 'Busy', full: 'Full – diverting' }[statusKind(h)]);
+function hospitalPopup(h) {
+  const km = Math.round(roadKm(state.loc, h) * 10) / 10;
+  const icu = h.status?.beds?.icu;
+  const fl = freshnessLabel(freshness(h.status?.verifiedAt));
+  return `<b>${esc(h.name)}</b><br>${statusText(h)} · ${km} km<br>ICU ${icu?.total ? `${icu.free}/${icu.total}` : '–'} · ${bedsFree(h)} beds reported<br><small>${fl.icon} ${esc(fl.text)}</small><br><a target="_blank" rel="noopener" href="https://www.google.com/maps/dir/?api=1&destination=${h.lat},${h.lng}">Directions →</a>`;
+}
+function drawHospitalMarker(h, force = false) {
+  if (!state.map || (!force && !state.map.markers.has(`h:${h.id}`))) return;
+  const icu = h.status?.beds?.icu;
+  state.map.set(`h:${h.id}`, h, statusKind(h), { text: icu?.total ? String(icu.free) : '', popup: hospitalPopup(h) });
+}
+
+// Where are my patient, my hospital and my vehicle right now? The tracking
+// link is status-only, so the vehicle position is estimated from its ETA.
+function casePositions(c, tv) {
+  const patient = tv.location;
+  const hospital = tv.hospital;
+  let vehicle = null;
+  const t = tv.transport;
+  const live = state.vpos.get(c.id);
+  if (t && patient && live && t.mode === 'ambulance') {
+    const where = t.phase === 'to_hospital' ? `To ${esc(hospital?.name || 'hospital')}` : t.phase === 'at_patient' ? 'With the patient' : 'Coming to you';
+    vehicle = { pos: live, kind: 'ambulance', label: `<b>Ambulance ${esc(t.ambulance || '')} (simulated)</b><br>${where} · ~${t.etaMin} min<br><small>live position</small>` };
+  } else if (t && patient) {
+    const kind = t.mode === 'ambulance' ? 'ambulance' : 'car';
+    const who = t.mode === 'ambulance' ? `Ambulance ${esc(t.ambulance || '')} (simulated)` : 'Own vehicle';
+    if (t.mode === 'ambulance' && t.phase !== 'to_hospital') {
+      vehicle = { pos: patient, kind, label: `<b>${who}</b><br>${t.phase === 'at_patient' ? 'With the patient' : `Coming to you · ~${t.etaMin} min`}` };
+    } else if (hospital && Number.isFinite(t.etaMin)) {
+      state.eta0[c.id] ??= Math.max(t.etaMin, 1);
+      const f = Math.max(0, Math.min(1, 1 - t.etaMin / state.eta0[c.id]));
+      vehicle = { pos: { lat: patient.lat + (hospital.lat - patient.lat) * f, lng: patient.lng + (hospital.lng - patient.lng) * f }, kind, label: `<b>${who}</b><br>To ${esc(hospital.name)} · ETA ${t.etaMin} min<br><small>estimated position</small>` };
+    }
+  }
+  return { patient, hospital, vehicle };
+}
+
+function drawCaseMarkers() {
+  if (!state.map) return;
+  const keep = new Set();
+  for (const c of cases()) {
+    const tv = state.track.get(c.id);
+    if (!tv || tv.gone || tv.status === 'arrived') continue;
+    const { patient, hospital, vehicle } = casePositions(c, tv);
+    if (patient) { state.map.set(`c:p:${c.id}`, patient, 'patient', { text: '!', popup: `<b>${esc(c.label)}</b><br>Case ${esc(c.id)}`, z: 600 }); keep.add(`c:p:${c.id}`); }
+    if (hospital) {
+      state.map.set(`c:d:${c.id}`, hospital, 'dest', { text: 'H', popup: `<b>${esc(hospital.name)}</b><br>Accepted your referral${tv.bay ? ` · bay ${esc(tv.bay)}` : ''}`, z: 700 });
+      state.map.line(`c:l:${c.id}`, vehicle?.pos || patient, hospital, '#0f9488');
+      keep.add(`c:d:${c.id}`); keep.add(`c:l:${c.id}`);
+    }
+    if (vehicle) { state.map.set(`c:v:${c.id}`, vehicle.pos, vehicle.kind, { text: vehicle.kind === 'ambulance' ? '🚑' : '🚗', popup: vehicle.label, z: 900 }); keep.add(`c:v:${c.id}`); }
+  }
+  state.map.prune('c:', keep);
+}
 
 function drawMap(el, list) {
   destroyMap();
   if (!window.L || !el) return;
-  state.map = createMap(el, state.loc, 12);
-  const group = window.L.featureGroup().addTo(state.map);
-  marker(state.map, state.loc, '🔵', 'You are here').addTo(group);
-  for (const { h, km } of list) {
-    const pin = h.status?.erStatus === 'diverting' ? '🏨' : '🏥';
-    marker(state.map, h, pin, `<b>${esc(h.name)}</b><br>${km} km · ${bedsFree(h)} beds reported`).addTo(group);
+  state.map = new LiveMap(el, state.loc, 12);
+  state.map.set('me', state.loc, 'me', { popup: '<b>You are here</b>', z: 500 });
+  for (const { h } of list) drawHospitalMarker(h, true);
+  drawCaseMarkers();
+  state.map.fit();
+}
+
+const MAP_LEGEND = legend([['me', 'You'], ['open', 'Open'], ['busy', 'Busy'], ['full', 'Full'], ['patient', 'Your case'], ['ambulance', 'Ambulance'], ['dest', 'Accepted hospital']]);
+const liveHead = (title) => `<div class="panel-head"><h3>${title} <span class="live-badge">LIVE</span></h3><span class="small muted liveTime"></span></div>`;
+const mapNote = '<p class="small muted" style="margin:.35rem 0 0">Numbers on pins = ICU beds free. Pins change colour the moment a hospital updates its status.</p>';
+
+// ---------------------------------------------------------------- live updates
+function stampLive() {
+  const t = `updated ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}`;
+  for (const el of document.querySelectorAll('.liveTime')) el.textContent = t;
+}
+
+function startHospitalStream() {
+  if (state.hosES) return;
+  try {
+    state.hosES = api.streamHospitals();
+    state.hosES.addEventListener('status', (e) => {
+      const { id, status } = JSON.parse(e.data);
+      const h = state.hospitals.find((x) => x.id === id);
+      if (!h) return;
+      h.status = status;
+      drawHospitalMarker(h);
+      stampLive();
+    });
+  } catch { /* live updates are a bonus */ }
+}
+
+function syncTrackStreams() {
+  for (const c of cases()) {
+    const tv = state.track.get(c.id);
+    const active = tv && !tv.gone && tv.status !== 'arrived';
+    if (active && !state.trackES.has(c.id)) {
+      try {
+        const es = api.streamTrack(c.id, c.trackToken);
+        es.addEventListener('case', (e) => onTrack(c.id, JSON.parse(e.data)));
+        state.trackES.set(c.id, es);
+      } catch { /* fall back to polling */ }
+    } else if (!active && state.trackES.has(c.id)) {
+      state.trackES.get(c.id).close();
+      state.trackES.delete(c.id);
+    }
+    // Real ambulance position, only in the tab that raised the case.
+    const tok = active && tv.transport?.mode === 'ambulance' && !state.caseES.has(c.id) ? api.savedCaseToken(c.id) : null;
+    if (tok) {
+      try {
+        const es = api.streamCase(c.id, tok);
+        es.addEventListener('ambulance', (e) => {
+          const a = JSON.parse(e.data);
+          if (a.position) { state.vpos.set(c.id, a.position); drawCaseMarkers(); }
+        });
+        es.onerror = () => { if (es.readyState === 2) state.caseES.delete(c.id); };
+        state.caseES.set(c.id, es);
+      } catch { /* estimated position is used instead */ }
+    } else if (!active && state.caseES.has(c.id)) {
+      state.caseES.get(c.id).close();
+      state.caseES.delete(c.id);
+      state.vpos.delete(c.id);
+    }
   }
-  if (group.getLayers().length > 1) state.map.fitBounds(group.getBounds().pad(0.15));
+}
+
+function onTrack(id, tv) {
+  state.track.set(id, tv);
+  updateLiveViews();
+  syncTrackStreams();
+}
+
+// Refresh the parts of the page that change, without redrawing the map.
+function updateLiveViews() {
+  renderBadges();
+  drawCaseMarkers();
+  const al = $('#activityList');
+  if (al) al.innerHTML = activityItems(4);
+  const cp = $('#casesPanel');
+  if (cp) cp.innerHTML = casesListHtml();
+  stampLive();
 }
 
 // ---------------------------------------------------------------- views
@@ -136,7 +272,7 @@ function activityItems(limit = 4) {
       </div>`);
     if (out.length >= limit) break;
   }
-  return out.join('') || `<div class="empty-state">No activity yet. Your emergency cases will appear here.<br><a class="b sm danger" href="/report" style="margin-top:.6rem">Report emergency</a></div>`;
+  return out.join('') || `<div class="empty-state">No activity yet. Your emergency cases will appear here.<br><button class="b sm danger" data-go="emergency" style="margin-top:.6rem">Report emergency</button></div>`;
 }
 
 function completeness() {
@@ -165,9 +301,9 @@ function viewHome() {
         <div class="hero-card">
           <span class="h-ico">${icon('shield')}</span>
           <div class="grow"><b>In case of emergency, report immediately</b><p class="small muted" style="margin:.2rem 0 .6rem">Get connected to a hospital that can treat you now, and an ambulance.</p>
-            <div class="row"><a class="b teal" href="/report">Report Emergency ${icon('arrow', 'sm')}</a><a class="b danger" href="/report#alone">🆘 I'm alone</a></div></div>
+            <div class="row"><button class="b teal" data-go="emergency">${icon('mic', 'sm')} Tap &amp; speak</button><button class="b danger" data-go="alone">🆘 I'm alone</button></div></div>
         </div>
-        <a class="action red" href="/report"><span class="a-ico">${icon('siren', 'lg')}</span><span><b>Report Emergency</b><small>Get quick help for critical cases</small></span><span class="chev">${icon('right')}</span></a>
+        <button class="action red" data-go="emergency"><span class="a-ico">${icon('mic', 'lg')}</span><span><b>Report Emergency</b><small>Speak or type – get a hospital to accept you</small></span><span class="chev">${icon('right')}</span></button>
         <button class="action blue" data-go="hospitals"><span class="a-ico">${icon('hospital', 'lg')}</span><span><b>Find Nearby Hospitals</b><small>Check beds, facilities &amp; directions</small></span><span class="chev">${icon('right')}</span></button>
         <button class="action green" data-go="ambulance"><span class="a-ico">${icon('ambulance', 'lg')}</span><span><b>Request Ambulance</b><small>108 &amp; ambulance request</small></span><span class="chev">${icon('right')}</span></button>
       </div>
@@ -198,12 +334,12 @@ function viewHome() {
     <div class="cols c3">
       <div class="panel">
         <div class="panel-head"><h3>Recent Activity</h3><button class="link" data-go="cases">View all ${icon('arrow', 'sm')}</button></div>
-        <div class="list">${activityItems(4)}</div>
+        <div class="list" id="activityList">${activityItems(4)}</div>
       </div>
       <div class="panel">
-        <div class="panel-head"><h3>Live Emergency Map</h3></div>
+        ${liveHead('Live Emergency Map')}
         <div class="map-box" id="homeMap"></div>
-        <div class="map-legend"><span>🏥 Hospital</span><span>🏨 Full / diverting</span><span>🔵 You are here</span></div>
+        ${MAP_LEGEND}
       </div>
       <div style="display:flex;flex-direction:column;gap:1rem">
         <div class="panel">
@@ -221,16 +357,14 @@ function viewHome() {
     </div>`;
 }
 
-function viewCases() {
+function casesListHtml() {
   const list = cases();
   return `
-    <div class="page-head"><h1>My Cases</h1><p>Emergencies raised from this device. Only this device can see them.</p></div>
-    <div class="panel">
       <div class="panel-head"><h3>${list.length} case${list.length === 1 ? '' : 's'}</h3><button class="link" id="refreshCases">${icon('refresh', 'sm')} Refresh</button></div>
       ${list.length ? list.map((c) => {
         const tv = state.track.get(c.id);
         return `
-          <details class="faq" ${state.openCase === c.id ? 'open' : ''}>
+          <details class="faq" data-case="${esc(c.id)}" ${state.openCases.has(c.id) ? 'open' : ''}>
             <summary class="row spread"><span class="row"><span style="font-size:1.3rem">${esc(c.icon || '🚑')}</span><span><b>${esc(c.label)}</b><br><small class="muted">Case ${esc(c.id)} · ${when(c.createdAt)} · <span class="sev-${esc(c.severity)}">${esc(c.severity || '')}</span></small></span></span>${statusPill(tv)}</summary>
             ${tv && !tv.gone ? `
               <div class="cols c2" style="margin-top:.7rem">
@@ -242,8 +376,19 @@ function viewCases() {
                 <ul class="small" style="margin:0;padding-left:1.1rem">${tv.timeline.slice(-6).reverse().map((e) => `<li><span class="muted">${new Date(e.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span> ${esc(e.text)}</li>`).join('')}</ul>
               </div>` : `<p class="small muted" style="margin-top:.6rem">${tv?.gone ? 'This case is closed or no longer available on the server (details are deleted after the retention period).' : 'Loading…'}</p>`}
           </details>`;
-      }).join('') : `<div class="empty-state">No cases yet.<br><a class="b danger" href="/report" style="margin-top:.7rem">${icon('siren', 'sm')} Report an emergency</a></div>`}
-    </div>`;
+      }).join('') : `<div class="empty-state">No cases yet.<br><button class="b danger" data-go="emergency" style="margin-top:.7rem">${icon('siren', 'sm')} Report an emergency</button></div>`}`;
+}
+
+function viewCases() {
+  return `
+    <div class="page-head"><h1>My Cases</h1><p>Emergencies raised from this device. Only this device can see them.</p></div>
+    <div class="panel">
+      ${liveHead('Live case map')}
+      <div class="map-box tall" id="casesMap"></div>
+      ${MAP_LEGEND}
+      <p class="small muted" style="margin:.35rem 0 0">Your location, the hospital that accepted you and your ambulance / vehicle – updated live while a case is active.</p>
+    </div>
+    <div class="panel" id="casesPanel">${casesListHtml()}</div>`;
 }
 
 const FILTERS = [
@@ -267,13 +412,14 @@ function filtered() {
 function viewHospitals() {
   const list = filtered();
   return `
-    <div class="page-head"><h1>Nearby Hospitals</h1><p>Reported by each hospital's authorised staff. Reported capacity is not a guarantee: in an emergency, <a href="/report">report it</a> so a hospital accepts you before you travel.</p></div>
+    <div class="page-head"><h1>Nearby Hospitals</h1><p>Reported by each hospital's authorised staff. Reported capacity is not a guarantee: in an emergency, <a href="#emergency">report it</a> so a hospital accepts you before you travel.</p></div>
     <div class="panel">
       <div class="row" style="margin-bottom:.8rem">
         <span class="input grow" style="max-width:360px">${icon('search', 'sm')}<input id="hq" placeholder="Search hospital or area" value="${esc(state.q)}"></span>
         ${FILTERS.map(([k, l]) => `<button class="chip-t" data-filter="${k}" aria-pressed="${state.filter === k}">${l}</button>`).join('')}
       </div>
-      <div class="map-box" id="hospMap" style="height:280px"></div>
+      <div class="map-box" id="hospMap" style="height:320px"></div>
+      ${MAP_LEGEND}${mapNote}
     </div>
     <div class="panel">
       <div class="panel-head"><h3>${list.length} hospital${list.length === 1 ? '' : 's'}</h3><span class="small muted">sorted by distance</span></div>
@@ -303,7 +449,7 @@ function viewAmbulance() {
         <div class="row" style="flex-wrap:nowrap;align-items:center;gap:1.2rem">
           <img src="/img/ambulance.svg" alt="" style="width:220px;max-width:40%">
           <div><h2>Life-threatening emergency?</h2><p class="muted">Call 108 – free, 24×7 government ambulance service. Janani Express is available for pregnancy.</p>
-          <div class="row"><a class="b danger lg" href="tel:108">${icon('phone')} Call 108 now</a><a class="b lg" href="/report">${icon('siren')} Request through Sehat Setu</a></div></div>
+          <div class="row"><a class="b danger lg" href="tel:108">${icon('phone')} Call 108 now</a><button class="b lg" data-go="emergency">${icon('siren')} Request through Sehat Setu</button></div></div>
         </div>
       </div>
       <div class="panel">
@@ -316,6 +462,12 @@ function viewAmbulance() {
         </ol>
         <p class="note-box small">Prototype: ambulance dispatch is <b>simulated</b>. In deployment the request is handed to the authorised 108 control room – Sehat Setu does not control 108 itself.</p>
       </div>
+    </div>
+    <div class="panel">
+      ${liveHead('Live ambulance map')}
+      <div class="map-box tall" id="ambMap"></div>
+      ${MAP_LEGEND}
+      <p class="small muted" style="margin:.35rem 0 0">${activeCases().some((c) => state.track.get(c.id)?.transport?.mode === 'ambulance') ? 'Your ambulance is shown live (estimated position from its ETA).' : 'No ambulance on its way for you right now – nearby hospitals are shown. Once you request one, it appears here live.'}</p>
     </div>`;
 }
 
@@ -424,7 +576,19 @@ function viewHelp() {
     </div>`;
 }
 
-const VIEWS = { home: viewHome, cases: viewCases, hospitals: viewHospitals, ambulance: viewAmbulance, records: viewRecords, contacts: viewContacts, profile: viewProfile, help: viewHelp };
+// The emergency app (voice → AI → hospital → acceptance → ambulance) runs
+// inside the dashboard, so the citizen never leaves their portal.
+function viewEmergency() {
+  const hash = state.alone ? '#alone' : '';
+  return `
+    <div class="row spread page-head">
+      <div><h1>${icon('mic', 'lg')} Emergency App</h1><p>Tap the red mic and speak in Hindi or English – or type. AI understands, finds a hospital that can treat you now and gets it to accept you. Your saved health details are pre-filled (shared only if you tick consent).</p></div>
+      <div class="row"><a class="b" href="/report${hash}" target="_blank" rel="noopener">${icon('arrow', 'sm')} Open full screen</a><a class="b danger" href="tel:108">${icon('phone', 'sm')} 108</a></div>
+    </div>
+    <div class="app-frame"><iframe id="appFrame" title="Sehat Setu emergency app" src="/report?embed=1${hash}" allow="geolocation; microphone; camera"></iframe></div>`;
+}
+
+const VIEWS = { emergency: viewEmergency, home: viewHome, cases: viewCases, hospitals: viewHospitals, ambulance: viewAmbulance, records: viewRecords, contacts: viewContacts, profile: viewProfile, help: viewHelp };
 
 function render() {
   destroyMap();
@@ -437,6 +601,8 @@ function render() {
 }
 
 function go(view) {
+  state.alone = view === 'alone';
+  if (state.alone) view = 'emergency';
   if (!VIEWS[view]) view = 'home';
   state.view = view;
   history.replaceState(null, '', `#${view}`);
@@ -447,12 +613,14 @@ function go(view) {
 
 function bindView() {
   if (state.view === 'home') drawMap($('#homeMap'), nearby(25).slice(0, 8));
+  if (state.view === 'cases') drawMap($('#casesMap'), nearby(25).slice(0, 6));
+  if (state.view === 'ambulance') drawMap($('#ambMap'), nearby(25).slice(0, 10));
+  if (['home', 'cases', 'ambulance', 'hospitals'].includes(state.view)) stampLive();
   if (state.view === 'hospitals') {
     drawMap($('#hospMap'), filtered().slice(0, 16));
     $('#hq').oninput = (e) => { state.q = e.target.value; clearTimeout(bindView.t); bindView.t = setTimeout(() => { render(); const i = $('#hq'); i.focus(); i.setSelectionRange(i.value.length, i.value.length); }, 250); };
     for (const b of document.querySelectorAll('[data-filter]')) b.onclick = () => { state.filter = b.dataset.filter; render(); };
   }
-  if (state.view === 'cases') $('#refreshCases').onclick = async () => { await refreshTracking(); render(); };
   if (state.view === 'records') {
     $('#recForm').onsubmit = (e) => {
       e.preventDefault();
@@ -539,12 +707,17 @@ async function boot() {
   document.addEventListener('click', (e) => {
     const g = e.target.closest('[data-go]');
     if (g) { e.preventDefault(); $('#userMenu').classList.add('hidden'); go(g.dataset.go); return; }
+    if (e.target.closest('#refreshCases')) { refreshTracking().then(updateLiveViews); return; }
     const oc = e.target.closest('[data-open-case]');
-    if (oc) { $('#bellMenu').classList.add('hidden'); state.openCase = oc.dataset.openCase; go('cases'); return; }
+    if (oc) { $('#bellMenu').classList.add('hidden'); state.openCases.add(oc.dataset.openCase); go('cases'); return; }
     if (!e.target.closest('#userBtn, #userMenu')) $('#userMenu').classList.add('hidden');
     if (!e.target.closest('#bellBtn, #bellMenu')) $('#bellMenu').classList.add('hidden');
   });
   $('#userBtn').onclick = () => $('#userMenu').classList.toggle('hidden');
+  document.addEventListener('toggle', (e) => {
+    const id = e.target.dataset?.case;
+    if (id) { if (e.target.open) state.openCases.add(id); else state.openCases.delete(id); }
+  }, true);
   $('#bellBtn').onclick = () => { renderBell(); $('#bellMenu').classList.toggle('hidden'); };
   $('#logoutBtn').onclick = signOut;
   $('#locBtn').onclick = () => {
@@ -555,7 +728,7 @@ async function boot() {
       state.loc = { ...pos, label: 'Your location' };
       try { sessionStorage.setItem('sehat.loc', JSON.stringify(state.loc)); } catch { /* ignore */ }
       $('#locLabel').textContent = state.loc.label;
-      render();
+      if (state.view !== 'emergency') render(); // don't reload a running emergency
     }, () => toast('Location permission denied – showing Bhopal (demo)'));
   };
 
@@ -565,10 +738,14 @@ async function boot() {
   if (config.dataMode !== 'live') $('#demoStrip').classList.remove('hidden');
   const start = location.hash.slice(1);
   if (start === 'welcome') toast(`Welcome, ${me.name.split(' ')[0]}! Add your health records and an emergency contact to be ready.`);
-  go(VIEWS[start] ? start : 'home');
-  window.addEventListener('hashchange', () => { const v = location.hash.slice(1); if (VIEWS[v] && v !== state.view) go(v); });
+  go(VIEWS[start] || start === 'alone' ? start : 'home');
+  window.addEventListener('hashchange', () => { const v = location.hash.slice(1); if ((VIEWS[v] || v === 'alone') && v !== state.view) go(v); });
+  // A case raised inside the embedded emergency app updates My Cases right away.
+  window.addEventListener('storage', async (e) => { if (e.key?.startsWith('sehat.citizen.profile.')) { await refreshTracking(); updateLiveViews(); } });
+  startHospitalStream();
   await refreshTracking();
-  if (['home', 'cases'].includes(state.view)) render();
-  setInterval(async () => { if (['home', 'cases'].includes(state.view) && cases().length) { await refreshTracking(); if (!document.querySelector('details[open]')) render(); } }, 20000);
+  updateLiveViews();
+  // Fallback polling in case a live stream drops.
+  setInterval(async () => { if (cases().length) { await refreshTracking(); updateLiveViews(); } }, 20000);
 }
 boot();

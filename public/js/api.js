@@ -59,20 +59,25 @@ export async function match(payload) {
 }
 
 // The case token is returned once when the case is created and proves this
-// device owns the case. It is kept in memory only.
+// device owns the case. It is kept in memory, plus this tab's sessionStorage
+// (cleared when the tab closes) so the citizen dashboard in the same tab can
+// follow the real ambulance position. It is never written to localStorage.
 let caseToken = null;
+const TOKEN_KEY = (id) => `sehat.caseTok.${id}`;
+export function savedCaseToken(id) { try { return sessionStorage.getItem(TOKEN_KEY(id)); } catch { return null; } }
 const withCase = (opts = {}) => ({ ...opts, headers: { ...(opts.headers || {}), 'X-Case-Token': caseToken || '' } });
 
 export async function createCase(body) {
   const c = await json('/api/cases', { method: 'POST', body });
   caseToken = c.accessToken;
+  try { sessionStorage.setItem(TOKEN_KEY(c.id), caseToken); } catch { /* private mode */ }
   return c;
 }
 export const requestAdmission = (id, body) => json(`/api/cases/${id}/request`, withCase({ method: 'POST', body }));
 export const startTransport = (id, mode) => json(`/api/cases/${id}/transport`, withCase({ method: 'POST', body: { mode } }));
 export const sendPosition = (id, body) => json(`/api/cases/${id}/position`, withCase({ method: 'POST', body })).catch(() => {});
 export const markArrived = (id) => json(`/api/cases/${id}/arrived`, withCase({ method: 'POST' }));
-export const streamCase = (id) => new EventSource(`/api/stream/case/${id}?t=${encodeURIComponent(caseToken || '')}`);
+export const streamCase = (id, token = caseToken) => new EventSource(`/api/stream/case/${id}?t=${encodeURIComponent(token || '')}`);
 export const streamHospitals = () => new EventSource('/api/stream/hospitals');
 export const getTrack = (id, t) => json(`/api/track/${encodeURIComponent(id)}?t=${encodeURIComponent(t)}`);
 export const streamTrack = (id, t) => new EventSource(`/api/stream/track/${encodeURIComponent(id)}?t=${encodeURIComponent(t)}`);
