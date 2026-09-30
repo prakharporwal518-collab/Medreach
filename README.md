@@ -46,7 +46,7 @@ npm run build:demo   # regenerate the single-file demo
 | Home page | `/` | Everyone | – |
 | Report emergency | `/report` | Anyone in an emergency | **None needed** (signed-in citizens get their details pre-filled) |
 | Sign in / register | `/login` | Citizen · Hospital Staff · Health Admin | Role cards, like a portal account screen |
-| Citizen dashboard | `/citizen` | Patients & families | Citizen account (mobile + password) |
+| Citizen dashboard | `/citizen` | Patients & families | Citizen account (mobile + password). **Report Emergency** opens the voice emergency app *inside* the dashboard (`/citizen#emergency`) |
 | Hospital dashboard | `/hospital` | Authorised hospital staff | Hospital ID + Staff ID + OTP |
 
 ### Two separate portals, private from each other

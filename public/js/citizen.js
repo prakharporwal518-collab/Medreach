@@ -136,7 +136,7 @@ function activityItems(limit = 4) {
       </div>`);
     if (out.length >= limit) break;
   }
-  return out.join('') || `<div class="empty-state">No activity yet. Your emergency cases will appear here.<br><a class="b sm danger" href="/report" style="margin-top:.6rem">Report emergency</a></div>`;
+  return out.join('') || `<div class="empty-state">No activity yet. Your emergency cases will appear here.<br><button class="b sm danger" data-go="emergency" style="margin-top:.6rem">Report emergency</button></div>`;
 }
 
 function completeness() {
@@ -165,9 +165,9 @@ function viewHome() {
         <div class="hero-card">
           <span class="h-ico">${icon('shield')}</span>
           <div class="grow"><b>In case of emergency, report immediately</b><p class="small muted" style="margin:.2rem 0 .6rem">Get connected to a hospital that can treat you now, and an ambulance.</p>
-            <div class="row"><a class="b teal" href="/report">Report Emergency ${icon('arrow', 'sm')}</a><a class="b danger" href="/report#alone">🆘 I'm alone</a></div></div>
+            <div class="row"><button class="b teal" data-go="emergency">${icon('mic', 'sm')} Tap &amp; speak</button><button class="b danger" data-go="alone">🆘 I'm alone</button></div></div>
         </div>
-        <a class="action red" href="/report"><span class="a-ico">${icon('siren', 'lg')}</span><span><b>Report Emergency</b><small>Get quick help for critical cases</small></span><span class="chev">${icon('right')}</span></a>
+        <button class="action red" data-go="emergency"><span class="a-ico">${icon('mic', 'lg')}</span><span><b>Report Emergency</b><small>Speak or type – get a hospital to accept you</small></span><span class="chev">${icon('right')}</span></button>
         <button class="action blue" data-go="hospitals"><span class="a-ico">${icon('hospital', 'lg')}</span><span><b>Find Nearby Hospitals</b><small>Check beds, facilities &amp; directions</small></span><span class="chev">${icon('right')}</span></button>
         <button class="action green" data-go="ambulance"><span class="a-ico">${icon('ambulance', 'lg')}</span><span><b>Request Ambulance</b><small>108 &amp; ambulance request</small></span><span class="chev">${icon('right')}</span></button>
       </div>
@@ -242,7 +242,7 @@ function viewCases() {
                 <ul class="small" style="margin:0;padding-left:1.1rem">${tv.timeline.slice(-6).reverse().map((e) => `<li><span class="muted">${new Date(e.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span> ${esc(e.text)}</li>`).join('')}</ul>
               </div>` : `<p class="small muted" style="margin-top:.6rem">${tv?.gone ? 'This case is closed or no longer available on the server (details are deleted after the retention period).' : 'Loading…'}</p>`}
           </details>`;
-      }).join('') : `<div class="empty-state">No cases yet.<br><a class="b danger" href="/report" style="margin-top:.7rem">${icon('siren', 'sm')} Report an emergency</a></div>`}
+      }).join('') : `<div class="empty-state">No cases yet.<br><button class="b danger" data-go="emergency" style="margin-top:.7rem">${icon('siren', 'sm')} Report an emergency</button></div>`}
     </div>`;
 }
 
@@ -267,7 +267,7 @@ function filtered() {
 function viewHospitals() {
   const list = filtered();
   return `
-    <div class="page-head"><h1>Nearby Hospitals</h1><p>Reported by each hospital's authorised staff. Reported capacity is not a guarantee: in an emergency, <a href="/report">report it</a> so a hospital accepts you before you travel.</p></div>
+    <div class="page-head"><h1>Nearby Hospitals</h1><p>Reported by each hospital's authorised staff. Reported capacity is not a guarantee: in an emergency, <a href="#emergency">report it</a> so a hospital accepts you before you travel.</p></div>
     <div class="panel">
       <div class="row" style="margin-bottom:.8rem">
         <span class="input grow" style="max-width:360px">${icon('search', 'sm')}<input id="hq" placeholder="Search hospital or area" value="${esc(state.q)}"></span>
@@ -303,7 +303,7 @@ function viewAmbulance() {
         <div class="row" style="flex-wrap:nowrap;align-items:center;gap:1.2rem">
           <img src="/img/ambulance.svg" alt="" style="width:220px;max-width:40%">
           <div><h2>Life-threatening emergency?</h2><p class="muted">Call 108 – free, 24×7 government ambulance service. Janani Express is available for pregnancy.</p>
-          <div class="row"><a class="b danger lg" href="tel:108">${icon('phone')} Call 108 now</a><a class="b lg" href="/report">${icon('siren')} Request through Sehat Setu</a></div></div>
+          <div class="row"><a class="b danger lg" href="tel:108">${icon('phone')} Call 108 now</a><button class="b lg" data-go="emergency">${icon('siren')} Request through Sehat Setu</button></div></div>
         </div>
       </div>
       <div class="panel">
@@ -424,7 +424,19 @@ function viewHelp() {
     </div>`;
 }
 
-const VIEWS = { home: viewHome, cases: viewCases, hospitals: viewHospitals, ambulance: viewAmbulance, records: viewRecords, contacts: viewContacts, profile: viewProfile, help: viewHelp };
+// The emergency app (voice → AI → hospital → acceptance → ambulance) runs
+// inside the dashboard, so the citizen never leaves their portal.
+function viewEmergency() {
+  const hash = state.alone ? '#alone' : '';
+  return `
+    <div class="row spread page-head">
+      <div><h1>${icon('mic', 'lg')} Emergency App</h1><p>Tap the red mic and speak in Hindi or English – or type. AI understands, finds a hospital that can treat you now and gets it to accept you. Your saved health details are pre-filled (shared only if you tick consent).</p></div>
+      <div class="row"><a class="b" href="/report${hash}" target="_blank" rel="noopener">${icon('arrow', 'sm')} Open full screen</a><a class="b danger" href="tel:108">${icon('phone', 'sm')} 108</a></div>
+    </div>
+    <div class="app-frame"><iframe id="appFrame" title="Sehat Setu emergency app" src="/report?embed=1${hash}" allow="geolocation; microphone; camera"></iframe></div>`;
+}
+
+const VIEWS = { emergency: viewEmergency, home: viewHome, cases: viewCases, hospitals: viewHospitals, ambulance: viewAmbulance, records: viewRecords, contacts: viewContacts, profile: viewProfile, help: viewHelp };
 
 function render() {
   destroyMap();
@@ -437,6 +449,8 @@ function render() {
 }
 
 function go(view) {
+  state.alone = view === 'alone';
+  if (state.alone) view = 'emergency';
   if (!VIEWS[view]) view = 'home';
   state.view = view;
   history.replaceState(null, '', `#${view}`);
@@ -555,7 +569,7 @@ async function boot() {
       state.loc = { ...pos, label: 'Your location' };
       try { sessionStorage.setItem('sehat.loc', JSON.stringify(state.loc)); } catch { /* ignore */ }
       $('#locLabel').textContent = state.loc.label;
-      render();
+      if (state.view !== 'emergency') render(); // don't reload a running emergency
     }, () => toast('Location permission denied – showing Bhopal (demo)'));
   };
 
@@ -565,8 +579,10 @@ async function boot() {
   if (config.dataMode !== 'live') $('#demoStrip').classList.remove('hidden');
   const start = location.hash.slice(1);
   if (start === 'welcome') toast(`Welcome, ${me.name.split(' ')[0]}! Add your health records and an emergency contact to be ready.`);
-  go(VIEWS[start] ? start : 'home');
-  window.addEventListener('hashchange', () => { const v = location.hash.slice(1); if (VIEWS[v] && v !== state.view) go(v); });
+  go(VIEWS[start] || start === 'alone' ? start : 'home');
+  window.addEventListener('hashchange', () => { const v = location.hash.slice(1); if ((VIEWS[v] || v === 'alone') && v !== state.view) go(v); });
+  // A case raised inside the embedded emergency app updates My Cases right away.
+  window.addEventListener('storage', async (e) => { if (e.key?.startsWith('sehat.citizen.profile.')) { await refreshTracking(); if (state.view === 'home' || state.view === 'cases') render(); } });
   await refreshTracking();
   if (['home', 'cases'].includes(state.view)) render();
   setInterval(async () => { if (['home', 'cases'].includes(state.view) && cases().length) { await refreshTracking(); if (!document.querySelector('details[open]')) render(); } }, 20000);
