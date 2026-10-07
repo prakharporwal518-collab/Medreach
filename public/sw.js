@@ -30,6 +30,7 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(request.url);
   if (request.method !== 'GET') return;
   if (url.pathname.startsWith('/api/stream')) return; // never cache live streams
+  if (url.pathname.startsWith('/downloads/')) return; // big files: straight from the network
   if (url.hostname.endsWith('project-osrm.org')) return; // routing must be fresh
 
   const networkFirst = url.origin === location.origin;
