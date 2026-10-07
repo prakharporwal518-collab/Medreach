@@ -44,7 +44,12 @@ test('security headers on pages and no-store on API responses', async () => {
   await new Promise((r) => server.once('listening', r));
   const base = `http://127.0.0.1:${server.address().port}`;
   const page = await fetch(`${base}/report`);
-  assert.match(page.headers.get('content-security-policy'), /default-src 'self'/);
+  const csp = page.headers.get('content-security-policy');
+  assert.match(csp, /default-src 'self'/);
+  // Map tiles are fetched by the service worker, which is bound by connect-src.
+  const connect = csp.split(';').find((d) => d.trim().startsWith('connect-src'));
+  assert.match(connect, /tile\.openstreetmap\.org/);
+  assert.match(connect, /fonts\.gstatic\.com/);
   assert.match(page.headers.get('strict-transport-security'), /max-age/);
   assert.equal(page.headers.get('x-frame-options'), 'SAMEORIGIN');
   const api = await fetch(`${base}/api/config`);

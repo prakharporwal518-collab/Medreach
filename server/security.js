@@ -7,7 +7,9 @@ const CSP = [
   "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
   "font-src 'self' https://fonts.gstatic.com data:",
   "img-src 'self' data: blob: https://tile.openstreetmap.org https://*.tile.openstreetmap.org",
-  "connect-src 'self' https://router.project-osrm.org https://cdn.jsdelivr.net https://tessdata.projectnaptha.com data: blob:",
+  // The service worker fetches map tiles and fonts on the page's behalf, and a
+  // worker's fetches are checked against connect-src (not img-src/font-src).
+  "connect-src 'self' https://router.project-osrm.org https://cdn.jsdelivr.net https://tessdata.projectnaptha.com https://tile.openstreetmap.org https://*.tile.openstreetmap.org https://fonts.googleapis.com https://fonts.gstatic.com data: blob:",
   "media-src 'self' blob:",
   "frame-src 'self'",
   "frame-ancestors 'self'",

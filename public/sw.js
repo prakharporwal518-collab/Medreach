@@ -4,7 +4,7 @@
 // internet. Only PUBLIC API data (hospital list, config) is ever cached –
 // patient, case and staff responses never touch the cache.
 
-const VERSION = 'medreach-v6';
+const VERSION = 'medreach-v7';
 const SHELL = [
   '/', '/index.html', '/report', '/report.html', '/login', '/login.html', '/citizen', '/citizen.html', '/hospital', '/hospital.html',
   '/css/app.css', '/css/ui.css', '/manifest.webmanifest', '/icons/icon.svg',
