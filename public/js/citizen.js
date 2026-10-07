@@ -105,6 +105,12 @@ function casePositions(c, tv) {
   const hospital = tv.hospital;
   let vehicle = null;
   const t = tv.transport;
+  if (t && patient && t.position && (t.mode === 'own' || t.phase)) {
+    const amb = t.mode === 'ambulance';
+    const where = t.phase === 'to_hospital' || !amb ? `To ${esc(hospital?.name || 'hospital')}` : t.phase === 'at_patient' ? 'With the patient' : 'Coming to you';
+    const who = amb ? `Ambulance ${esc(t.ambulance || '')} (simulated)` : t.gps ? 'Own vehicle · live GPS' : 'Own vehicle · simulated drive';
+    return { patient, hospital, vehicle: { pos: t.position, kind: amb ? 'ambulance' : 'car', path: t.path, nextPath: t.nextPath, toPatient: amb && t.phase === 'to_patient', label: `<b>${who}</b><br>${where} · ~${t.etaMin} min${t.onRoad ? '<br><small>following the road route</small>' : ''}` } };
+  }
   const live = state.vpos.get(c.id);
   if (t && patient && live && t.mode === 'ambulance') {
     const where = t.phase === 'to_hospital' ? `To ${esc(hospital?.name || 'hospital')}` : t.phase === 'at_patient' ? 'With the patient' : 'Coming to you';
@@ -133,7 +139,10 @@ function drawCaseMarkers() {
     if (patient) { state.map.set(`c:p:${c.id}`, patient, 'patient', { text: '!', popup: `<b>${esc(c.label)}</b><br>Case ${esc(c.id)}`, z: 600 }); keep.add(`c:p:${c.id}`); }
     if (hospital) {
       state.map.set(`c:d:${c.id}`, hospital, 'dest', { text: 'H', popup: `<b>${esc(hospital.name)}</b><br>Accepted your referral${tv.bay ? ` · bay ${esc(tv.bay)}` : ''}`, z: 700 });
-      state.map.line(`c:l:${c.id}`, vehicle?.pos || patient, hospital, '#0f9488');
+      if (vehicle?.toPatient) {
+        state.map.route(`c:r:${c.id}`, vehicle.path, vehicle.pos, patient, '#f59e0b'); keep.add(`c:r:${c.id}`);
+        state.map.route(`c:l:${c.id}`, vehicle.nextPath, patient, hospital, '#0f9488');
+      } else state.map.route(`c:l:${c.id}`, vehicle?.path, vehicle?.pos || patient, hospital, '#0f9488');
       keep.add(`c:d:${c.id}`); keep.add(`c:l:${c.id}`);
     }
     if (vehicle) { state.map.set(`c:v:${c.id}`, vehicle.pos, vehicle.kind, { text: vehicle.kind === 'ambulance' ? '🚑' : '🚗', popup: vehicle.label, z: 900 }); keep.add(`c:v:${c.id}`); }

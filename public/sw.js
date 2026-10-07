@@ -1,9 +1,10 @@
 // Medreach service worker – makes the app installable and usable offline.
 // App shell + shared AI engines are cached, so an emergency can still be
 // understood and hospitals suggested (from the last saved status) without
-// internet. API calls are network-first with a cached fallback.
+// internet. Only PUBLIC API data (hospital list, config) is ever cached –
+// patient, case and staff responses never touch the cache.
 
-const VERSION = 'medreach-v5';
+const VERSION = 'medreach-v6';
 const SHELL = [
   '/', '/index.html', '/report', '/report.html', '/login', '/login.html', '/citizen', '/citizen.html', '/hospital', '/hospital.html',
   '/css/app.css', '/css/ui.css', '/manifest.webmanifest', '/icons/icon.svg',
@@ -11,9 +12,11 @@ const SHELL = [
   '/js/app.js', '/js/api.js', '/js/i18n.js', '/js/voice.js', '/js/vision.js', '/js/ocr.js', '/js/map.js', '/js/livemap.js', '/js/hospital.js',
   '/js/icons.js', '/js/landing.js', '/js/login.js', '/js/citizen.js', '/js/citizen-store.js',
   '/shared/triage.js', '/shared/matching.js', '/shared/predict.js', '/shared/capabilities.js', '/shared/ocr-parse.js',
-  '/shared/freshness.js', '/shared/roles.js', '/shared/handover.js',
+  '/shared/freshness.js', '/shared/roles.js', '/shared/handover.js', '/shared/geo.js',
   '/vendor/leaflet/leaflet.css', '/vendor/leaflet/leaflet.js',
 ];
+
+const PUBLIC_API = ['/api/hospitals', '/api/config'];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(caches.open(VERSION).then((c) => Promise.allSettled(SHELL.map((u) => c.add(u)))));
@@ -33,15 +36,19 @@ self.addEventListener('fetch', (event) => {
   if (url.pathname.startsWith('/downloads/')) return; // big files: straight from the network
   if (url.hostname.endsWith('project-osrm.org')) return; // routing must be fresh
 
-  const networkFirst = url.origin === location.origin;
-  if (networkFirst) {
+  const sameOrigin = url.origin === location.origin;
+  if (sameOrigin && url.pathname.startsWith('/api/')) {
+    if (!PUBLIC_API.includes(url.pathname)) return; // private data: network only, never cached
+  }
+  if (sameOrigin) {
     event.respondWith(
       fetch(request)
         .then((res) => {
           if (res.ok) { const copy = res.clone(); caches.open(VERSION).then((c) => c.put(request, copy)); }
           return res;
         })
-        .catch(() => caches.match(request).then((hit) => hit || caches.match('/report.html'))),
+        .catch(() => caches.match(request, { ignoreSearch: request.mode === 'navigate' })
+          .then((hit) => hit || (request.mode === 'navigate' ? caches.match('/report.html') : Response.error()))),
     );
     return;
   }

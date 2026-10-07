@@ -79,9 +79,22 @@ Every dashboard page that deals with a place has a **LIVE** map. Markers move an
 
 - The citizen map shows the real ambulance position only in the browser tab that raised the case. The case token is handed over in that tab's `sessionStorage` and is never saved to `localStorage`. On other devices the position is estimated from the ETA and labelled "estimated position".
 - Pick-up points reach hospitals rounded to about 100 m.
+- **Real roads.** The server asks the public OSRM router (OpenStreetMap data, no key) for the road route once per trip. The ambulance then drives **along that road** from its base to the patient and on to the hospital, and **your own vehicle** drives from your live location to the hospital. Every screen (your phone, the family link, the hospital dashboard) sees the same position. With the own vehicle, the phone's real GPS takes over as soon as you actually start moving. If routing is unreachable, a straight line is used and clearly labelled.
 - **The map needs no API key.** Tiles are free public OpenStreetMap tiles; no key, token or account is used anywhere in the map code. The server sends `Referrer-Policy: no-referrer`, so each tile request sets its own referrer policy; OpenStreetMap refuses tile requests that carry no referrer. If tiles are blocked on a network, the pins still work on a plain grid.
 
-Optional Generative AI: `export ANTHROPIC_API_KEY=...` before `npm start`. Everything works without it.
+Optional Generative AI: `export GEMINI_API_KEY=...` (free key from [Google AI Studio](https://aistudio.google.com/apikey)) or `export ANTHROPIC_API_KEY=...` before `npm start`. Everything works without it.
+
+### 📵 Works offline (rural, low-network areas)
+- The whole app shell, the triage rules engine and hospital matching are cached on the phone by a service worker, so the emergency is still understood and hospitals ranked (from the last saved hospital status) with **no network**.
+- A request made offline is **saved on the phone** and **sent automatically** the moment the network returns. If the app is closed, it is offered again the next time it opens.
+- Meanwhile the screen offers **Call 108**, an **SMS with your location** to your trusted contact (SMS works on 2G with no data) and navigation to the hospital. The map tiles you have already seen stay available offline.
+- Only public data (hospital list, config) is ever cached. Patient, case and staff responses are never stored in the cache, so a shared phone doesn't leak them.
+
+### 🔒 Security of hospital and patient data
+- **Encryption at rest:** patient details, the emergency description and the contact's phone are kept **AES-256-GCM encrypted** in server memory (`server/vault.js`). They are decrypted only for an authorised view (that hospital's staff, after consent). Set `SEHAT_DATA_KEY` to keep one key; otherwise a random key is made at every start.
+- **Strict headers:** Content-Security-Policy (only our own scripts + the two CDNs we use), HSTS, `X-Frame-Options`, `nosniff`, `Permissions-Policy`, `Referrer-Policy`, and `Cache-Control: no-store` on every API response.
+- **Rate limits** per client on OTP, login, case creation and AI endpoints; **staff accounts lock for 15 minutes** after 10 wrong OTPs; OTPs are compared in constant time.
+- Request bodies are capped (100 KB; 8 MB only for photos), and every staff action stays in the audit log.
 
 ---
 
@@ -89,7 +102,9 @@ Optional Generative AI: `export ANTHROPIC_API_KEY=...` before `npm start`. Every
 
 **Live now:** https://medreach-wtne.onrender.com (auto-deploys on every merge to `main`).
 
-One click: **New → Blueprint** → select this repo. [`render.yaml`](render.yaml) sets the build and start commands, the health check and all environment variables. Only `ANTHROPIC_API_KEY` is asked for, and it's optional.
+One click: **New → Blueprint** → select this repo. [`render.yaml`](render.yaml) sets the build and start commands, the health check and all environment variables. It asks for `GEMINI_API_KEY`, `ANTHROPIC_API_KEY` and `SEHAT_DATA_KEY`. All are optional; leave them empty to run without AI.
+
+**Turn on Gemini:** get a free key at [aistudio.google.com/apikey](https://aistudio.google.com/apikey) → Render → your service → **Environment** → add `GEMINI_API_KEY` → **Save, rebuild and deploy**. The start-up log then shows `Generative AI: Gemini (gemini-2.5-flash)`. Also add `SEHAT_DATA_KEY` (any 64 hex characters, e.g. from `openssl rand -hex 32`).
 Manual: **New → Web Service** with build command `npm ci`, start command `npm start`, health check `/api/config`, plus the variables in `render.yaml`. Render provides `PORT` itself.
 Keep it to **one instance**, because cases and live updates are held in memory. On the free plan the service sleeps after 15 minutes idle and forgets open cases when it restarts. That's fine for a demo; open the URL a minute before presenting.
 
@@ -106,7 +121,7 @@ We state this plainly, in the app (yellow **DEMO** banner) and here:
 | Staff & OTP | Fictional staff; OTP shown on screen (no SMS gateway) | Staff registry + SMS OTP; OTP is never returned by the API (`SEHAT_DATA_MODE=live`) |
 | Ambulance | **Simulated** units and movement | Hand-off to the authorised **108 / ambulance control room (CAD)**. Medreach does not control 108 |
 | Trusted-contact SMS | Simulated (logged + WhatsApp share link) | SMS gateway |
-| AI | Offline rules engine; Claude when a key is set | Claude (with the rules engine as floor and fallback) |
+| AI | Offline rules engine; Gemini or Claude when a key is set | Gemini or Claude (with the rules engine as floor and fallback) |
 
 **Proving the architecture live:** log in to the console as a hospital's staff and set the ER to *Diverting*. Every citizen currently looking at hospital options sees *"Live update from hospital dashboard"*, and that hospital disappears from their list within a second. Re-open it and it comes back, now showing *"🟢 Verified just now"* with *"Updated by: Emergency Desk Officer"*.
 
@@ -116,7 +131,7 @@ We state this plainly, in the app (yellow **DEMO** banner) and here:
 
 **"Where exactly is the AI?"**
 AI/NLP turns the citizen's words into structured requirements: emergency type, severity, red flags, age group and required capabilities. Then a **deterministic matching engine** applies those requirements to staff-verified facility data. *"AI understands the citizen's description; the final hospital selection is constrained by explicit healthcare requirements and verified facility data."* The AI never picks the hospital. The app shows this pipeline under **"How was this decided?"**.
-- With an API key, Claude does the understanding (`server/llm.js`) and can only **raise** urgency, never lower it (severity = max of AI and rules).
+- With an API key, Gemini or Claude does the understanding (`server/llm.js`) and can only **raise** urgency, never lower it (severity = max of AI and rules).
 - Without a key, or offline, the rules engine (`shared/triage.js`) is the floor.
 
 **"Are these real-time hospital beds?"**
@@ -225,9 +240,9 @@ Capability available?  Current status?
 
 | Technology | How Medreach uses it | Code |
 |---|---|---|
-| **Generative AI** | Claude extracts requirements from messy multilingual descriptions and drafts an **SBAR pre-arrival handover note** for the ER doctor. | `server/llm.js` |
+| **Generative AI** | Gemini or Claude extracts requirements from messy multilingual descriptions and drafts an **SBAR pre-arrival handover note** for the ER doctor. | `server/llm.js` |
 | **Voice Bots** | Speak the emergency in Hindi or English. Acceptance, safety steps and directions are read aloud, and the console announces new referrals. | `public/js/voice.js` |
-| **Computer Vision** | Photo of the wound or scene → Claude vision describes visible findings. Offline: on-device pixel check for blood or burns. The photo is never uploaded when offline. | `server/llm.js`, `public/js/vision.js` |
+| **Computer Vision** | Photo of the wound or scene → Gemini or Claude vision describes visible findings. Offline: on-device pixel check for blood or burns. The photo is never uploaded when offline. | `server/llm.js`, `public/js/vision.js` |
 | **OCR** | Scan an Ayushman / ABHA card or prescription **on the phone** (Tesseract.js). Details are shared only with consent, and IDs are masked for hospitals. | `public/js/ocr.js`, `shared/ocr-parse.js` |
 | **Predictive Analytics** | Traffic-aware ETA, Poisson **bed-on-arrival** probability (weighted by freshness), ER wait, 8-hour arrival forecast for staffing. | `shared/predict.js` |
 | **Conversational AI** | One follow-up question at a time; severity and guidance update after each answer. | `shared/triage.js` |
@@ -240,7 +255,9 @@ Citizen PWA ─┐                         ┌─ server/api.js   one set of rou
 Family link ─┼── REST + SSE (HTTPS) ───┤  server/auth.js  Hospital ID + Staff ID + OTP, sessions, RBAC
 Hospital     │                         │  server/store.js cases, audit log, freshness stamps, consent,
 console ─────┘                         │                  masked views, retention purge, simulations
-                                       └─ server/llm.js   Claude (optional)
+                                       │  server/llm.js   Gemini or Claude (optional)
+                                       │  server/routing.js road routes (OSRM / OpenStreetMap)
+                                       └─ server/vault.js AES-256-GCM encryption · server/security.js headers + rate limits
 shared/ (runs on server AND phone): triage · matching · predict · freshness · roles · capabilities · ocr-parse · handover
 ```
 
@@ -261,7 +278,13 @@ shared/ (runs on server AND phone): triage · matching · predict · freshness �
 |---|---|---|
 | `PORT` | `3000` | HTTP port |
 | `SEHAT_DATA_MODE` | `demo` | `live` = never return OTP, no demo staff list |
+| `GEMINI_API_KEY` | – | Enables Gemini ([free key](https://aistudio.google.com/apikey)) |
+| `GEMINI_MODEL` | `gemini-2.5-flash` | Gemini model |
 | `ANTHROPIC_API_KEY` | – | Enables Claude |
+| `SEHAT_AI_PROVIDER` | auto | `gemini` or `claude` when both keys are set |
+| `SEHAT_DATA_KEY` | random per start | 64 hex chars; AES-256-GCM key for patient data |
+| `SEHAT_ROUTING` | `on` | `off` = straight-line routes |
+| `SEHAT_SIMULATE_VEHICLE` | `1` | Simulate own-vehicle drive until GPS shows movement |
 | `SEHAT_RETENTION_MS` | 24 h | Delete personal/health details this long after hand-over |
 | `SEHAT_RESPONSE_TIMEOUT_MS` | `60000` | Auto-escalate if logged-in staff don't respond |
 | `SEHAT_SIM_RESPONSE_MS` | `3500` | Simulated desk delay (only when no staff logged in) |

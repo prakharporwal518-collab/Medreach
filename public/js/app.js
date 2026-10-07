@@ -86,13 +86,39 @@ function renderStepper() {
   $('#stepCaption').textContent = `${state.step + 1}/8 · ${t().steps[state.step]}`;
 }
 
-function go(step) {
+function go(step, { fromHistory = false } = {}) {
   if (state.step === 3 && step !== 3) { state.hosES?.close(); state.hosES = null; }
+  const prev = state.step;
   state.step = step;
   document.querySelectorAll('.step').forEach((s) => s.classList.toggle('hidden', s.id !== `step-${step}`));
   renderStepper();
+  renderBack();
+  // The phone's own back button / gesture steps back through the first screens too.
+  if (!fromHistory && step > prev && step <= 3) { try { history.pushState({ step }, ''); } catch { /* file:// */ } }
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
+
+// ------------------------------------------------------------------ ← back / exit
+const isEmbedded = () => document.body.classList.contains('embedded');
+function renderBack() {
+  const s = t();
+  const lbl = $('#backLabel');
+  if (!lbl) return;
+  lbl.textContent = state.step >= 1 && state.step <= 3 ? s.back
+    : state.step === 0 ? (isEmbedded() || citizen.current() ? s.backDashboard : s.backHome)
+      : s.exitFlow;
+}
+function leaveEmergency() {
+  if (isEmbedded()) { try { window.parent.location.hash = '#home'; return; } catch { /* cross-origin */ } }
+  location.href = citizen.current() ? '/citizen' : '/';
+}
+function goBack() {
+  if (state.step >= 1 && state.step <= 3) { go(state.step - 1, { fromHistory: true }); return; }
+  if (state.step === 0 || !state.caseData || window.confirm(t().leaveConfirm)) leaveEmergency();
+}
+window.addEventListener('popstate', () => {
+  if (state.step >= 1 && state.step <= 3) go(state.step - 1, { fromHistory: true });
+});
 
 function setOffline(off) { $('#offline').classList.toggle('hidden', !off); }
 window.addEventListener('online', () => setOffline(false));
@@ -198,7 +224,7 @@ async function onPhoto(file) {
   state.photo = await fileToDataUrl(file);
   state.vision = await analysePhoto(state.photo, state.lang);
   $('#photoAttach').classList.add('done');
-  const tag = state.vision.engine === 'claude-vision' ? t().engineAi : t().heuristic;
+  const tag = /^(claude|gemini)-vision$/.test(state.vision.engine) ? `${t().engineAi} (${state.vision.engine.startsWith('gemini') ? 'Gemini' : 'Claude'})` : t().heuristic;
   $('#photoResult').innerHTML = `
     <img class="thumb" src="${state.photo}" alt="">
     <p><b>${t().photoFindings}</b> <span class="engine-badge">${esc(tag)}</span><br>${esc(state.vision.description || state.vision.findings.join('; '))}</p>
@@ -280,7 +306,7 @@ function renderTriage() {
   const s = t();
   const qId = state.alone ? null : tr.followUps?.[0];
   const q = qId ? FOLLOW_UPS[qId] : null;
-  const engine = tr.engine === 'claude' ? s.engineAi : s.engineRules;
+  const engine = ['claude', 'gemini'].includes(tr.engine) ? `${s.engineAi} (${tr.engine === 'gemini' ? 'Gemini' : 'Claude'})` : s.engineRules;
   const age = tr.patient?.isChild ? s.ageChild : tr.patient?.isElderly ? s.ageElderly : tr.patient?.age ? `${tr.patient.age}` : s.ageUnknown;
   const cpr = tr.redFlags?.includes('not_breathing');
   $('#step-1').innerHTML = `
@@ -581,19 +607,66 @@ async function requestHospital(option) {
   } catch (e) {
     // Offline or server unreachable: we cannot get a confirmation, so help the
     // family act anyway – call 108 and go, clearly marked as NOT confirmed.
+    const offline = !e.status || !navigator.onLine;
+    if (offline && !state.caseData) saveOutbox(option);
+    const contactPhone = state.contact ? String(state.contact.phone).replace(/[^\d+]/g, '') : '';
     $('#step-4').innerHTML = `
       <div class="card">
-        <h2>📵 ${s.genericError}</h2>
-        <p class="small">${esc(e.message)}</p>
+        <h2>📵 ${offline ? s.offlineTitle : s.genericError}</h2>
+        ${offline && !state.caseData ? `<p class="offline-queued">⏳ ${s.offlineQueued}</p>` : `<p class="small">${esc(e.message)}</p>`}
         <p class="small redflag">${s.notConfirmedWarn}</p>
         <div class="row">
           <a class="btn danger" href="tel:108">📞 ${s.call108}</a>
-          <a class="btn" href="sms:108?body=${encodeURIComponent(smsText())}">✉️ ${s.smsLocation}</a>
+          <a class="btn" href="sms:${contactPhone}?body=${encodeURIComponent(smsText())}">✉️ ${contactPhone ? s.offlineSmsContact : s.smsLocation}</a>
           <button class="btn primary" id="navAnyway">🗺️ ${s.navigate}</button>
         </div>
       </div>`;
     $('#navAnyway').onclick = () => { state.transportMode = 'own'; showNavigation(); };
   }
+}
+
+// ------------------------------------------------------------------ 📵 offline outbox
+// A request made without network is kept on the phone and sent the moment the
+// network returns (on this page), or offered again the next time the app opens.
+const OUTBOX = 'medreach.outbox';
+function saveOutbox(option) {
+  try {
+    localStorage.setItem(OUTBOX, JSON.stringify({
+      at: Date.now(), hospitalId: option.hospital.id, hospitalName: option.hospital.name, option: stripOption(option),
+      payload: { triage: state.triage, location: state.location, lang: state.lang, patient: {}, consent: { patientDetails: false }, contact: state.contact, alone: state.alone, text: state.text },
+    }));
+  } catch { /* storage blocked */ }
+}
+const readOutbox = () => { try { return JSON.parse(localStorage.getItem(OUTBOX)); } catch { return null; } };
+const clearOutbox = () => { try { localStorage.removeItem(OUTBOX); } catch { /* ignore */ } };
+window.addEventListener('online', () => {
+  if (!readOutbox()) return;
+  if (state.step === 4 && state.selected && !state.caseData) {
+    const box = $('#step-4 .offline-queued');
+    if (box) box.textContent = `📶 ${t().offlineSending}`;
+    clearOutbox();
+    requestHospital(state.selected);
+  } else showOutboxBanner();
+});
+function showOutboxBanner() {
+  const ob = readOutbox();
+  const el = $('#outboxBanner');
+  if (!el) return;
+  if (!ob || Date.now() - ob.at > 6 * 60 * 60 * 1000) { if (ob) clearOutbox(); el.classList.add('hidden'); return; }
+  const s = t();
+  el.innerHTML = `<span>📵 ${esc(s.offlineResume(new Date(ob.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })))} <b>${esc(ob.hospitalName)}</b></span>
+    <span class="row"><button class="btn primary" id="obSend" type="button">${s.offlineSendNow}</button><button class="btn" id="obDrop" type="button">${s.offlineDiscard}</button></span>`;
+  el.classList.remove('hidden');
+  $('#obDrop').onclick = () => { clearOutbox(); el.classList.add('hidden'); };
+  $('#obSend').onclick = async () => {
+    try {
+      const c = await api.createCase(ob.payload);
+      await api.requestAdmission(c.id, { hospitalId: ob.hospitalId, option: ob.option });
+      clearOutbox();
+      if (citizen.current()) citizen.addCase({ id: c.id, trackToken: c.trackToken, label: ob.payload.triage?.label, icon: ob.payload.triage?.icon, severity: ob.payload.triage?.severity, createdAt: new Date().toISOString() });
+      location.href = `/report?track=${encodeURIComponent(c.id)}&t=${encodeURIComponent(c.trackToken)}`;
+    } catch (err) { el.querySelector('span').textContent = `📵 ${err.message || t().offlineTitle}`; }
+  };
 }
 
 function stripOption(o) {
@@ -674,6 +747,7 @@ function openStream(id) {
   state.es = api.streamCase(id);
   state.es.addEventListener('case', (e) => onCaseUpdate(JSON.parse(e.data)));
   state.es.addEventListener('ambulance', (e) => onAmbulance(JSON.parse(e.data)));
+  state.es.addEventListener('vehicle', (e) => onVehicle(JSON.parse(e.data)));
 }
 
 async function onCaseUpdate(c) {
@@ -836,8 +910,21 @@ async function showNavigation() {
     ambMarker = marker(navMap, tr.position, '🚑');
     onAmbulance(tr);
   } else {
+    carMarker = marker(navMap, state.location, '🚗');
+    if (tr) onVehicle(tr);
     followOwnVehicle();
   }
+}
+
+let carMarker = null;
+// Own vehicle: the server drives it along the road route (demo) until the phone's
+// GPS shows real movement; either way everyone sees the same position.
+function onVehicle(tr) {
+  if (!tr || tr.mode !== 'own' || state.step !== 6 || !tr.position) return;
+  const s = t();
+  if (Number.isFinite(tr.etaMin)) $('#etaBig').textContent = tr.etaMin;
+  $('#ambBadge').textContent = `🚗 ${tr.gps ? s.vehicleGps : s.vehicleSim}`;
+  carMarker?.setLatLng([tr.position.lat, tr.position.lng]);
 }
 
 function showStep(step) {
@@ -868,8 +955,9 @@ function onAmbulance(tr) {
   $('#ambBadge').textContent = `🚑 ${tr.ambulance.id} (${s.simulatedTag}) · ${s.ambPhase[tr.phase] || ''}`;
   if (!ambMarker) return;
   let pt = [tr.position.lat, tr.position.lng];
-  if (tr.phase === 'to_patient' && routes.toPatient && !routes.toPatient.fallback) pt = pointAlong(routes.toPatient.coords, tr.progress);
-  if (tr.phase === 'to_hospital' && routes.toHospital && !routes.toHospital.fallback) pt = pointAlong(routes.toHospital.coords, tr.progress);
+  // The server already moves the ambulance on real roads; otherwise follow our own route.
+  if (!tr.onRoad && tr.phase === 'to_patient' && routes.toPatient && !routes.toPatient.fallback) pt = pointAlong(routes.toPatient.coords, tr.progress);
+  if (!tr.onRoad && tr.phase === 'to_hospital' && routes.toHospital && !routes.toHospital.fallback) pt = pointAlong(routes.toHospital.coords, tr.progress);
   if (tr.phase === 'at_patient') pt = [state.location.lat, state.location.lng];
   ambMarker.setLatLng(pt);
   if (tr.phase === 'to_patient') $('#navSub').textContent = ` · ${s.ambOnWay(tr.ambulance.id, Math.max(0, tr.etaMin - (tr.etaToHospitalMin || 0) - 2))}`;
@@ -973,6 +1061,8 @@ async function boot() {
       state.lang = b.dataset.lang;
       store.set('sehat.lang', state.lang);
       applyI18n();
+      renderBack();
+      showOutboxBanner();
       if (state.step === 1 && state.triage) runTriage();
     };
   }
@@ -980,7 +1070,10 @@ async function boot() {
   for (const b of document.querySelectorAll('[data-close]')) b.onclick = () => b.closest('dialog').close();
 
   const params = new URLSearchParams(location.search);
-  if (params.get('track')) { bootTrackPage(params.get('track'), params.get('t') || ''); return; }
+  if (params.get('track')) { $('#backBtn')?.closest('.flow-nav')?.classList.add('hidden'); bootTrackPage(params.get('track'), params.get('t') || ''); return; }
+  $('#backBtn').onclick = goBack;
+  renderBack();
+  showOutboxBanner();
 
   startGps();
   api.hospitals(); // warm the offline cache

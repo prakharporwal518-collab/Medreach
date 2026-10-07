@@ -24,6 +24,23 @@ const fail = (status, message) => { throw Object.assign(new Error(message), { st
 export function createAuth({ staff = STAFF, demoMode = true, audit = () => {}, now = () => Date.now() } = {}) {
   const otps = new Map();     // `${hospitalId}|${staffId}` -> { code, expires, attempts }
   const sessions = new Map(); // token -> { staff, expires }
+  const failures = new Map(); // `${hospitalId}|${staffId}` -> { count, since } – account lockout
+  const LOCK_AFTER = 10;
+  const LOCK_MS = 15 * 60 * 1000;
+  // Compare without leaking how many leading characters matched.
+  const sameCode = (a, b) => {
+    const x = String(a).trim();
+    const y = String(b);
+    let diff = x.length ^ y.length;
+    for (let i = 0; i < Math.max(x.length, y.length); i++) diff |= (x.charCodeAt(i) || 0) ^ (y.charCodeAt(i) || 0);
+    return diff === 0;
+  };
+  const locked = (key) => {
+    const f = failures.get(key);
+    if (!f) return false;
+    if (now() - f.since > LOCK_MS) { failures.delete(key); return false; }
+    return f.count >= LOCK_AFTER;
+  };
 
   const find = (hospitalId, staffId) => staff.find((s) =>
     s.hospitalId.toLowerCase() === String(hospitalId).trim().toLowerCase()
@@ -45,14 +62,23 @@ export function createAuth({ staff = STAFF, demoMode = true, audit = () => {}, n
   function verifyOtp(hospitalId, staffId, code) {
     const s = find(hospitalId, staffId);
     const entry = s && otps.get(`${s.hospitalId}|${s.staffId}`);
+    if (s && locked(`${s.hospitalId}|${s.staffId}`)) {
+      audit({ hospitalId: s.hospitalId, staffId: s.staffId, name: s.name, role: s.role, action: 'login.failed', result: 'account_locked' });
+      fail(429, 'Too many wrong OTPs – this account is locked for 15 minutes');
+    }
     if (!s || !entry) fail(401, 'Request a new OTP');
     if (now() > entry.expires) { otps.delete(`${s.hospitalId}|${s.staffId}`); fail(401, 'OTP expired – request a new one'); }
     if (++entry.attempts > MAX_ATTEMPTS) { otps.delete(`${s.hospitalId}|${s.staffId}`); fail(429, 'Too many attempts – request a new OTP'); }
-    if (String(code).trim() !== entry.code) {
+    if (!sameCode(code, entry.code)) {
+      const key = `${s.hospitalId}|${s.staffId}`;
+      const f = failures.get(key) || { count: 0, since: now() };
+      f.count += 1;
+      failures.set(key, f);
       audit({ hospitalId: s.hospitalId, staffId: s.staffId, name: s.name, role: s.role, action: 'login.failed', result: 'wrong_otp' });
       fail(401, `Wrong OTP (${MAX_ATTEMPTS - entry.attempts} attempts left)`);
     }
     otps.delete(`${s.hospitalId}|${s.staffId}`);
+    failures.delete(`${s.hospitalId}|${s.staffId}`);
     const token = randomHex(32);
     const expires = now() + SESSION_TTL_MS;
     const who = { staffId: s.staffId, hospitalId: s.hospitalId, name: s.name, role: s.role, roleLabel: ROLES[s.role].label };

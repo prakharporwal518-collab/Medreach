@@ -49,9 +49,20 @@ export class LiveMap {
   line(key, a, b, color = '#e11d48') {
     if (!a || !b) { this.drop(key); return; }
     const pts = [[a.lat, a.lng], [b.lat, b.lng]];
-    const l = this.lines.get(key);
+    let l = this.lines.get(key);
+    if (l && !l.options.dashArray) { l.remove(); this.lines.delete(key); l = null; }
     if (l) l.setLatLngs(pts);
     else this.lines.set(key, L().polyline(pts, { color, weight: 3, dashArray: '6 8', opacity: 0.85 }).addTo(this.map));
+  }
+
+  /** Add or update a solid road route (array of [lat, lng]); falls back to a dashed line. */
+  route(key, coords, fallbackA, fallbackB, color = '#e11d48') {
+    if (!coords || coords.length < 2) { this.line(key, fallbackA, fallbackB, color); return; }
+    const l = this.lines.get(key);
+    if (l && l.options.dashArray) { l.remove(); this.lines.delete(key); }
+    const cur = this.lines.get(key);
+    if (cur) cur.setLatLngs(coords);
+    else this.lines.set(key, L().polyline(coords, { color, weight: 4, opacity: 0.85 }).addTo(this.map));
   }
 
   drop(key) {
