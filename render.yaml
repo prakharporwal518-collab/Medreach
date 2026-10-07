@@ -1,5 +1,5 @@
 # Render Blueprint – https://render.com/docs/blueprint-spec
-# New → Blueprint → pick this repo. Render will ask for ANTHROPIC_API_KEY (optional; leave empty to run without Claude).
+# New → Blueprint → pick this repo. Render asks for GEMINI_API_KEY / ANTHROPIC_API_KEY (both optional) and SEHAT_DATA_KEY.
 services:
   - type: web
     name: sehat-setu
@@ -28,5 +28,20 @@ services:
       - key: SEHAT_AI_TIMEOUT_MS
         value: "15000"
       # Optional Generative AI. Set in the Render dashboard (secret), never commit it.
+      # Gemini: free key from https://aistudio.google.com/apikey
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GEMINI_MODEL
+        value: gemini-2.5-flash
       - key: ANTHROPIC_API_KEY
         sync: false
+      # Only needed when BOTH keys are set: 'gemini' or 'claude'.
+      - key: SEHAT_AI_PROVIDER
+        sync: false
+      # 64 hex chars (openssl rand -hex 32). Encrypts patient details in memory (AES-256-GCM).
+      # Optional: without it a random key is made at every start.
+      - key: SEHAT_DATA_KEY
+        sync: false
+      # Real road routes from the public OSRM server (OpenStreetMap). 'off' = straight lines.
+      - key: SEHAT_ROUTING
+        value: "on"

@@ -193,7 +193,7 @@ function connect() {
   es.addEventListener('position', (e) => {
     const p = JSON.parse(e.data);
     const c = state.cases.get(p.caseId);
-    if (c?.transport) { c.transport.etaMin = p.etaMin; c.transport.position = { lat: p.lat, lng: p.lng }; touch(); updateLive(); }
+    if (c?.transport) { c.transport.etaMin = p.etaMin; c.transport.position = { lat: p.lat, lng: p.lng }; if (p.path) c.transport.path = p.path; c.transport.simulated = p.simulated; touch(); updateLive(); }
   });
   es.addEventListener('status', (e) => { state.hospital.status = JSON.parse(e.data).status; touch(); softRender(); });
   es.addEventListener('audit', async () => { await loadAudit(); softRender(); });
@@ -417,7 +417,7 @@ function caseCard(c) {
       ${p.allergies?.length ? `<p class="small sev-critical"><b>Allergies:</b> ${p.allergies.map(esc).join(', ')}</p>` : ''}
       <div class="row small"><span class="pill gray">ETA ${eta(c) ?? '?'} min</span><span class="pill gray">${esc((c.bedType || 'er').toUpperCase())} bed</span>
         <span class="pill gray">${c.transport ? (c.transport.mode === 'ambulance' ? `🚑 ${esc(c.transport.ambulance.id)} (simulated)${amb ? ` · ${esc(amb.phase.replace('_', ' '))}` : ''}` : '🚗 own vehicle') : 'transport: deciding'}</span>
-        ${c.handover ? `<span class="pill violet">note: ${c.handover.engine === 'claude' ? 'Claude AI' : 'template'}</span>` : ''}</div>
+        ${c.handover ? `<span class="pill violet">note: ${c.handover.engine === 'claude' ? 'Claude AI' : c.handover.engine === 'gemini' ? 'Gemini AI' : 'template'}</span>` : ''}</div>
       ${c.handover ? `<pre class="sbar">${esc(c.handover.text)}</pre>` : ''}
       <p class="small muted">Needs: ${tr.required.map((x) => esc(capLabel(x))).join(', ')}</p>
       ${c.status === 'requested' ? `
@@ -651,7 +651,12 @@ function drawIncoming(lm, only = null) {
     if (vpos) {
       const amb = c.transport?.mode === 'ambulance';
       lm.set(`c:v:${c.id}`, vpos, amb ? 'ambulance' : 'car', { text: amb ? '🚑' : '🚗', popup: `<b>${esc(transportText(c))}</b><br>${esc(c.triage.label)} · ETA ${eta(c) ?? '?'} min`, z: 900 });
-      lm.line(`c:l:${c.id}`, vpos, state.hospital, '#e11d48');
+      // Real road route from the server (remaining part of the current leg).
+      const path = a?.path || c.transport?.path;
+      const toHospital = a?.phase === 'to_patient' ? null : path;
+      lm.route(`c:l:${c.id}`, toHospital, vpos, state.hospital, '#e11d48');
+      if (a?.phase === 'to_patient' && a.path) { lm.route(`c:r:${c.id}`, a.path, vpos, c.location, '#f59e0b'); keep.add(`c:r:${c.id}`); }
+      if (a?.phase === 'to_patient' && a.nextPath) lm.route(`c:l:${c.id}`, a.nextPath, c.location, state.hospital, '#e11d48');
       keep.add(`c:v:${c.id}`); keep.add(`c:l:${c.id}`);
     } else if (c.location) {
       lm.line(`c:l:${c.id}`, c.location, state.hospital, '#7c3aed');

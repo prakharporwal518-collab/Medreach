@@ -2,6 +2,7 @@ import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 
 process.env.SEHAT_DISABLE_AI = '1'; // deterministic: use the offline engines
+process.env.SEHAT_ROUTING = 'off'; // no network calls from tests
 const { createApp } = await import('../server/index.js');
 const { createStore } = await import('../server/store.js');
 

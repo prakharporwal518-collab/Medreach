@@ -12,11 +12,14 @@
 //
 // Real-time updates use Server-Sent Events (SSE). Everything is in memory –
 // enough for a prototype; production would use Postgres (encrypted at rest)
-// + Redis pub/sub.
+// + Redis pub/sub. Patient details, the raw description and the trusted
+// contact are kept sealed by a `vault` (AES-256-GCM on the server) and only
+// opened when an authorised view is built.
 
 import { HOSPITALS, AMBULANCES, SEED_VERIFIED_MIN_AGO } from './data/hospitals.js';
 import { roadKm, predictTravelMin } from '../shared/predict.js';
 import { roleLabel } from '../shared/roles.js';
+import { pointAlong, downsample, remainingPath, straightLine } from '../shared/geo.js';
 
 const env = globalThis.process?.env ?? {};
 const randomHex = (bytes) => Array.from(globalThis.crypto.getRandomValues(new Uint8Array(bytes)),
@@ -32,6 +35,12 @@ export function createStore({
   demoSpeed = Number(env.SEHAT_DEMO_SPEED ?? 15), // 1 real second = 15 simulated seconds
   retentionMs = Number(env.SEHAT_RETENTION_MS ?? 24 * 60 * 60 * 1000), // purge patient details 24 h after arrival
   seedVerified = true,
+  // Road routes for moving vehicles: async (from, to) => { coords, km, min } | null.
+  routeFn = null,
+  // Demo: drive the citizen's own vehicle along the route until real GPS movement arrives.
+  simulateOwnVehicle = env.SEHAT_SIMULATE_VEHICLE !== '0',
+  // Field encryption for personal data; identity by default (browser demo).
+  vault = { seal: (v) => v, open: (v) => v },
 } = {}) {
   const cases = new Map();
   const channels = new Map(); // channel -> Set<res>
@@ -81,6 +90,7 @@ export function createStore({
   // Citizen who created the case: everything except secrets & timers.
   function view(c) {
     const { responseTimer, accessToken, trackToken, ...rest } = c;
+    if (rest.transport) rest.transport = wire(rest.transport);
     return rest;
   }
   // Receiving hospital: only what's needed for care; IDs masked; nothing without consent.
@@ -104,7 +114,10 @@ export function createStore({
       hospital: h && ['accepted', 'enroute', 'arrived'].includes(c.status) ? { name: h.name, area: h.area, lat: h.lat, lng: h.lng } : null,
       bay: c.bay,
       acceptedBy: c.acceptedBy ? { role: c.acceptedBy.roleLabel } : null,
-      transport: c.transport ? { mode: c.transport.mode, etaMin: c.transport.etaMin, phase: c.transport.phase, ambulance: c.transport.ambulance?.id } : null,
+      transport: c.transport ? (() => {
+        const w = wire(c.transport);
+        return { mode: w.mode, etaMin: w.etaMin, phase: w.phase, ambulance: w.ambulance?.id, simulated: w.simulated, gps: w.gps, position: w.position, path: w.path, nextPath: w.nextPath, onRoad: w.onRoad };
+      })() : null,
       location: c.location,
       timeline: c.timeline.map((e) => ({ at: e.at, text: e.public ?? e.text })),
       alone: c.alone,
@@ -119,14 +132,25 @@ export function createStore({
   }
 
   // ---------------------------------------------------------------- cases
+  // Personal fields live only in sealed form; reading them opens the vault.
+  const SEALED = ['patient', 'contact', 'text'];
+  function sealFields(c, values) {
+    const box = {};
+    for (const f of SEALED) {
+      Object.defineProperty(c, f, {
+        enumerable: true,
+        get: () => vault.open(box[f]),
+        set: (v) => { box[f] = vault.seal(v); },
+      });
+      c[f] = values[f];
+    }
+  }
+
   function createCase({ triage, location, patient = {}, contact = null, lang = 'en', vision = null, text = '', consent = {}, alone = false }) {
     const id = `SS-${randomHex(3).toUpperCase()}`;
     const c = {
-      id, createdAt: now(), status: 'new', lang, text, triage, location,
-      // Data minimisation: patient details are only stored if the family consented to share them.
-      patient: consent.patientDetails ? patient : {},
+      id, createdAt: now(), status: 'new', lang, triage, location,
       consent: { patientDetails: Boolean(consent.patientDetails), location: true, at: now() },
-      contact: contact?.phone ? { name: contact.name || 'Trusted contact', phone: contact.phone } : null,
       alone: Boolean(alone),
       vision,
       accessToken: randomHex(16), // for the citizen's device
@@ -135,6 +159,12 @@ export function createStore({
       acceptedBy: null, acceptedAt: null, reportedCapacity: null,
       requests: [], transport: null, timeline: [],
     };
+    sealFields(c, {
+      text: String(text || ''),
+      // Data minimisation: patient details are only stored if the family consented to share them.
+      patient: consent.patientDetails ? patient : {},
+      contact: contact?.phone ? { name: contact.name || 'Trusted contact', phone: contact.phone } : null,
+    });
     cases.set(id, c);
     log(c, 'created', `Emergency reported: ${triage.label} (${triage.severity})${alone ? ' – person is ALONE' : ''}`);
     if (c.contact) {
@@ -244,17 +274,45 @@ export function createStore({
     return null;
   }
 
+  // What goes on the wire for a moving vehicle: no full route geometry every
+  // second, just the remaining part of the current leg (and the next leg).
+  function wire(t) {
+    if (!t) return t;
+    const { legs, ...rest } = t;
+    const leg = t.phase === 'to_patient' ? legs?.toPatient : legs?.toHospital;
+    return {
+      ...rest,
+      onRoad: Boolean(leg?.road),
+      path: leg ? downsample(remainingPath(leg.coords, t.progress ?? 0), 60) : undefined,
+      nextPath: t.phase === 'to_patient' && legs?.toHospital ? downsample(legs.toHospital.coords, 60) : undefined,
+    };
+  }
+  const leg = (from, to) => ({ coords: straightLine(from, to), road: false });
+  async function loadRoad(t, key, from, to) {
+    if (!routeFn) return;
+    try {
+      const r = await routeFn(from, to);
+      if (r?.coords?.length > 1) t.legs[key] = { coords: r.coords, road: true, km: r.km, min: r.min };
+    } catch { /* keep the straight line */ }
+  }
+  const at = (lg, f) => { const p = pointAlong(lg.coords, f); return { lat: p[0], lng: p[1] }; };
+
+  function publishMove(c) {
+    const t = c.transport;
+    const w = wire(t);
+    publish(`case:${c.id}`, t.mode === 'ambulance' ? 'ambulance' : 'vehicle', w);
+    publish(`track:${c.id}`, 'case', trackView(c));
+    if (t.mode === 'ambulance') publish(`hospital:${c.hospitalId}`, 'ambulance', { caseId: c.id, ...w });
+    else publish(`hospital:${c.hospitalId}`, 'position', { caseId: c.id, lat: t.position.lat, lng: t.position.lng, etaMin: t.etaMin, path: w.path, simulated: t.simulated });
+  }
+
   function startTransport(caseId, { mode }) {
     const c = cases.get(caseId);
     if (!c) throw Object.assign(new Error('case not found'), { status: 404 });
     if (c.status !== 'accepted') throw Object.assign(new Error('hospital has not accepted yet'), { status: 409 });
     const h = getHospital(c.hospitalId);
     c.status = 'enroute';
-    if (mode !== 'ambulance') {
-      c.transport = { mode: 'own', startedAt: now(), etaMin: c.etaMin };
-      log(c, 'enroute', `Travelling by own vehicle to ${h.name} – ETA ${c.etaMin ?? '?'} min`);
-      return c;
-    }
+    if (mode !== 'ambulance') return startOwnVehicle(c, h);
     const pick = pickAmbulance(c.triage.ambulanceType, c.location);
     if (!pick) {
       c.transport = { mode: 'own', startedAt: now(), etaMin: c.etaMin, note: 'No ambulance free nearby' };
@@ -266,58 +324,91 @@ export function createStore({
     const hour = new Date().getHours();
     const toPatient = predictTravelMin(roadKm(amb, c.location), { hour, mode: 'ambulance' }).minutes;
     const toHospital = predictTravelMin(roadKm(c.location, h), { hour, mode: 'ambulance' }).minutes;
-    c.transport = {
+    const from = { lat: amb.lat, lng: amb.lng };
+    const t = {
       mode: 'ambulance',
       simulated: true,
       ambulance: { id: amb.id, type: amb.type, base: amb.base },
       phase: 'to_patient', progress: 0,
-      position: { lat: amb.lat, lng: amb.lng },
-      from: { lat: amb.lat, lng: amb.lng },
+      position: { ...from },
+      from,
       etaToPatientMin: toPatient, etaToHospitalMin: toHospital,
       etaMin: toPatient + toHospital + 2,
       demoSpeed,
       startedAt: now(),
     };
+    Object.defineProperty(t, 'legs', { value: { toPatient: leg(from, c.location), toHospital: leg(c.location, h) }, enumerable: false, writable: true });
+    c.transport = t;
     log(c, 'dispatched', `Ambulance request handed to control room (SIMULATED) – unit ${amb.id} (${amb.type}) from ${amb.base}, ~${toPatient} min away`);
+    loadRoad(t, 'toPatient', from, c.location);
+    loadRoad(t, 'toHospital', c.location, h);
     simulateAmbulance(c, amb, h);
     return c;
   }
 
   function simulateAmbulance(c, amb, h) {
     const t = c.transport;
-    const lerp = (a, b, f) => ({ lat: a.lat + (b.lat - a.lat) * f, lng: a.lng + (b.lng - a.lng) * f });
     let atPatientTicks = 0;
     const tick = () => {
       if (c.status !== 'enroute' || t.mode !== 'ambulance') return;
       if (t.phase === 'to_patient') {
         t.progress = Math.min(1, t.progress + demoSpeed / (t.etaToPatientMin * 60));
-        t.position = lerp(t.from, c.location, t.progress);
+        t.position = at(t.legs.toPatient, t.progress);
         t.etaMin = Math.round(t.etaToPatientMin * (1 - t.progress) + t.etaToHospitalMin + 2);
-        if (t.progress >= 1) { t.phase = 'at_patient'; t.progress = 0; log(c, 'at_patient', `Ambulance ${amb.id} reached the patient – paramedics stabilising`); }
+        if (t.progress >= 1) { t.phase = 'at_patient'; t.progress = 0; t.position = { ...c.location }; log(c, 'at_patient', `Ambulance ${amb.id} reached the patient – paramedics stabilising`); }
       } else if (t.phase === 'at_patient') {
         if (++atPatientTicks >= 3) { t.phase = 'to_hospital'; log(c, 'to_hospital', `Patient on board – heading to ${h.name}`); }
       } else if (t.phase === 'to_hospital') {
         t.progress = Math.min(1, t.progress + demoSpeed / (t.etaToHospitalMin * 60));
-        t.position = lerp(c.location, h, t.progress);
+        t.position = at(t.legs.toHospital, t.progress);
         t.etaMin = Math.max(0, Math.round(t.etaToHospitalMin * (1 - t.progress)));
         if (t.progress >= 1) { arrive(c.id); return; }
       }
-      publish(`case:${c.id}`, 'ambulance', t);
-      publish(`track:${c.id}`, 'case', trackView(c));
-      publish(`hospital:${c.hospitalId}`, 'ambulance', { caseId: c.id, ...t });
+      publishMove(c);
       later(tick, 1000);
     };
     later(tick, 1000);
   }
 
+  // Own vehicle: real GPS from the family's phone when it moves; until then (and in
+  // demo mode) the car is driven along the road route so everyone sees it travel.
+  function startOwnVehicle(c, h) {
+    const eta = Math.max(1, c.etaMin ?? predictTravelMin(roadKm(c.location, h), { hour: new Date().getHours() }).minutes);
+    const t = {
+      mode: 'own', startedAt: now(), etaMin: eta, etaToHospitalMin: eta,
+      phase: 'to_hospital', progress: 0, position: { ...c.location },
+      simulated: simulateOwnVehicle, gps: false,
+    };
+    Object.defineProperty(t, 'legs', { value: { toHospital: leg(c.location, h) }, enumerable: false, writable: true });
+    c.transport = t;
+    log(c, 'enroute', `Travelling by own vehicle to ${h.name} – ETA ${eta} min`);
+    loadRoad(t, 'toHospital', c.location, h);
+    if (!simulateOwnVehicle) return c;
+    const tick = () => {
+      if (c.status !== 'enroute' || t.mode !== 'own' || !t.simulated) return;
+      t.progress = Math.min(1, t.progress + demoSpeed / (t.etaToHospitalMin * 60));
+      t.position = at(t.legs.toHospital, t.progress);
+      t.etaMin = Math.max(0, Math.round(t.etaToHospitalMin * (1 - t.progress)));
+      if (t.progress >= 1) { arrive(c.id); return; }
+      publishMove(c);
+      later(tick, 1000);
+    };
+    later(tick, 1000);
+    return c;
+  }
+
   function updatePosition(caseId, { lat, lng, etaMin }) {
     const c = cases.get(caseId);
     if (!c) throw Object.assign(new Error('case not found'), { status: 404 });
-    if (c.transport?.mode === 'own') {
-      c.transport.position = { lat, lng };
-      if (Number.isFinite(etaMin)) c.transport.etaMin = etaMin;
-      publish(`hospital:${c.hospitalId}`, 'position', { caseId, lat, lng, etaMin: c.transport.etaMin });
-      publish(`track:${c.id}`, 'case', trackView(c));
+    const t = c.transport;
+    if (t?.mode === 'own' && Number.isFinite(lat) && Number.isFinite(lng)) {
+      // Real movement (> ~200 m from the pick-up point) takes over from the simulation.
+      if (!t.gps && roadKm(c.location, { lat, lng }) / 1.35 < 0.2) return c;
+      t.gps = true;
+      t.simulated = false;
+      t.position = { lat, lng };
+      if (Number.isFinite(etaMin)) t.etaMin = etaMin;
+      publishMove(c);
     }
     return c;
   }
@@ -332,6 +423,10 @@ export function createStore({
     if (c.transport?.mode === 'ambulance') {
       const amb = ambulances.find((a) => a.id === c.transport.ambulance.id);
       if (amb) { amb.available = true; Object.assign(amb, amb.home); }
+      c.transport.progress = 1;
+      c.transport.etaMin = 0;
+      c.transport.position = { lat: h.lat, lng: h.lng };
+    } else if (c.transport?.mode === 'own') {
       c.transport.progress = 1;
       c.transport.etaMin = 0;
       c.transport.position = { lat: h.lat, lng: h.lng };

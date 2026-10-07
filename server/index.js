@@ -3,7 +3,7 @@
 //   Citizen app  (public/index.html)     ──┐
 //   Family tracking (index.html?track=)  ──┼──► REST + Server-Sent Events ──► api.js ──► store.js (cases, audit)
 //   Hospital console (public/hospital.html)┘                                    │         auth.js  (OTP, roles)
-//                                                                              └──────► llm.js   (Claude)
+//                                                                              └──────► llm.js   (Claude or Gemini)
 
 import express from 'express';
 import path from 'node:path';
@@ -11,7 +11,10 @@ import { fileURLToPath } from 'node:url';
 import { createStore } from './store.js';
 import { createAuth } from './auth.js';
 import { createApi } from './api.js';
-import { aiEnabled, aiTriage, aiVision, aiHandover } from './llm.js';
+import { aiEnabled, aiProvider, aiTriage, aiVision, aiHandover } from './llm.js';
+import { createVault } from './vault.js';
+import { roadRoute, routingEnabled } from './routing.js';
+import { securityHeaders, rateLimiter, DEFAULT_LIMITS } from './security.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, '..');
@@ -20,7 +23,11 @@ const root = path.resolve(here, '..');
 // 'live'  → figures only from authorised hospital staff; OTP never returned
 export const DATA_MODE = process.env.SEHAT_DATA_MODE === 'live' ? 'live' : 'demo';
 
-export function createApp(store = createStore(), { dataMode = DATA_MODE } = {}) {
+export function productionStore() {
+  return createStore({ vault: createVault(), routeFn: routingEnabled() ? roadRoute : null });
+}
+
+export function createApp(store = productionStore(), { dataMode = DATA_MODE, limits = DEFAULT_LIMITS } = {}) {
   const auth = createAuth({ demoMode: dataMode === 'demo', audit: store.audit });
   const api = createApi({
     store, auth, dataMode,
@@ -29,12 +36,11 @@ export function createApp(store = createStore(), { dataMode = DATA_MODE } = {}) 
 
   const app = express();
   app.disable('x-powered-by');
-  app.use(express.json({ limit: '8mb' })); // photos for vision are sent as base64
-  app.use((req, res, next) => {
-    // Basic hardening; HTTPS/TLS is terminated by the hosting platform in deployment.
-    res.set({ 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer', 'X-Frame-Options': 'SAMEORIGIN' });
-    next();
-  });
+  app.set('trust proxy', 1); // real client IP behind Render's proxy, for rate limits
+  app.use(securityHeaders);
+  app.use(rateLimiter(limits));
+  app.use('/api/vision', express.json({ limit: '8mb' })); // only photos may be large
+  app.use(express.json({ limit: '100kb' }));
 
   app.use(express.static(path.join(root, 'public'), { extensions: ['html'] }));
   app.use('/shared', express.static(path.join(root, 'shared')));
@@ -79,7 +85,7 @@ export function createApp(store = createStore(), { dataMode = DATA_MODE } = {}) 
 
 // Start the server when run directly (not when imported by tests).
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const store = createStore();
+  const store = productionStore();
   if (process.env.SEHAT_SIMULATE === '1') store.startStatusSimulation();
   const port = Number(process.env.PORT || 3000);
   createApp(store).listen(port, (err) => {
@@ -91,6 +97,8 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     console.log(`   Citizen app:      http://localhost:${port}/`);
     console.log(`   Hospital console: http://localhost:${port}/hospital`);
     console.log(`   Data mode:        ${DATA_MODE === 'demo' ? 'DEMO – simulated hospital data, OTP shown on screen' : 'LIVE – staff-verified data only'}`);
-    console.log(`   Generative AI:    ${aiEnabled() ? 'Claude enabled' : 'off (set ANTHROPIC_API_KEY to enable) – using offline engines'}\n`);
+    console.log(`   Generative AI:    ${aiEnabled() ? `${aiProvider()} enabled` : 'off (set GEMINI_API_KEY or ANTHROPIC_API_KEY) – using offline engines'}`);
+    console.log(`   Road routing:     ${routingEnabled() ? 'OSRM (OpenStreetMap roads)' : 'off – straight lines'}`);
+    console.log(`   Data encryption:  AES-256-GCM, ${process.env.SEHAT_DATA_KEY ? 'key from SEHAT_DATA_KEY' : 'random key per start (set SEHAT_DATA_KEY to keep one)'}\n`);
   });
 }

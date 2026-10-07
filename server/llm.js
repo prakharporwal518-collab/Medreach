@@ -1,4 +1,4 @@
-// Medreach – Generative AI layer (Claude).
+// Medreach – Generative AI layer (Claude or Google Gemini).
 //
 // Three jobs:
 //   1. aiTriage   – understand a free-form, multilingual emergency description
@@ -11,6 +11,9 @@
 // of the rule engine and the model, and required capabilities are the union.
 // Any error / timeout / refusal silently falls back to the rule engine, because
 // in an emergency a slightly less clever answer now beats a perfect one later.
+//
+// Provider: set ANTHROPIC_API_KEY for Claude or GEMINI_API_KEY for Gemini
+// (SEHAT_AI_PROVIDER=gemini|claude picks one when both are set).
 
 import Anthropic from '@anthropic-ai/sdk';
 import { EMERGENCIES, SEVERITY } from '../shared/triage.js';
@@ -20,13 +23,26 @@ import { templateHandover } from '../shared/handover.js';
 export { templateHandover };
 
 const MODEL = process.env.SEHAT_MODEL || 'claude-opus-5-5';
+const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
 const TIMEOUT_MS = Number(process.env.SEHAT_AI_TIMEOUT_MS || 15000);
 
 let client = null;
-export function aiEnabled() {
-  if (process.env.SEHAT_DISABLE_AI === '1') return false;
-  return Boolean(process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN);
+const hasClaude = () => Boolean(process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN);
+const hasGemini = () => Boolean(process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY);
+/** 'claude' | 'gemini' | null */
+export function aiProvider() {
+  if (process.env.SEHAT_DISABLE_AI === '1') return null;
+  const pick = (process.env.SEHAT_AI_PROVIDER || '').toLowerCase();
+  if (pick === 'gemini' && hasGemini()) return 'gemini';
+  if (pick === 'claude' && hasClaude()) return 'claude';
+  if (hasClaude()) return 'claude';
+  if (hasGemini()) return 'gemini';
+  return null;
 }
+export function aiEnabled() {
+  return aiProvider() !== null;
+}
+const modelName = () => (aiProvider() === 'gemini' ? GEMINI_MODEL : MODEL);
 function getClient() {
   if (!client) client = new Anthropic({ timeout: TIMEOUT_MS, maxRetries: 1 });
   return client;
@@ -35,8 +51,70 @@ function getClient() {
 const TYPES = Object.keys(EMERGENCIES);
 const CAPS = Object.keys(CAPABILITIES);
 
-// Calls Claude with a JSON-schema constrained output and returns the parsed object.
-async function structuredCall({ system, content, schema, maxTokens = 8000 }) {
+// Gemini: content parts are { text } or { inlineData: { mimeType, data } }.
+function geminiParts(content) {
+  if (typeof content === 'string') return [{ text: content }];
+  return content.map((b) => (b.type === 'image'
+    ? { inlineData: { mimeType: b.source.media_type, data: b.source.data } }
+    : { text: b.text }));
+}
+
+async function geminiCall({ system, content, schema, maxTokens }) {
+  const key = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(GEMINI_MODEL)}:generateContent`;
+  const send = async (withSchema) => {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        signal: ctrl.signal,
+        headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
+        body: JSON.stringify({
+          systemInstruction: { parts: [{ text: withSchema ? system : `${system}\n\nReply with JSON only, matching this JSON schema:\n${JSON.stringify(schema)}` }] },
+          contents: [{ role: 'user', parts: geminiParts(content) }],
+          generationConfig: {
+            temperature: 0.2,
+            maxOutputTokens: maxTokens,
+            responseMimeType: 'application/json',
+            ...(withSchema ? { responseJsonSchema: schema } : {}),
+          },
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw Object.assign(new Error(data.error?.message || `Gemini HTTP ${res.status}`), { status: res.status, provider: 'gemini' });
+      return data;
+    } catch (err) {
+      if (err.name === 'AbortError') throw Object.assign(new Error('timeout'), { provider: 'gemini' });
+      throw err;
+    } finally {
+      clearTimeout(timer);
+    }
+  };
+  let data;
+  try {
+    data = await send(true);
+  } catch (err) {
+    // Older models reject responseJsonSchema: retry with the schema in the prompt.
+    if (err.status !== 400) throw err;
+    data = await send(false);
+  }
+  if (data.promptFeedback?.blockReason) throw new Error(`model refused (${data.promptFeedback.blockReason})`);
+  const cand = data.candidates?.[0];
+  if (!cand) throw new Error('empty Gemini response');
+  if (cand.finishReason === 'SAFETY') throw new Error('model refused (safety)');
+  if (cand.finishReason === 'MAX_TOKENS') throw new Error('model output truncated');
+  const text = (cand.content?.parts || []).map((p) => p.text || '').join('').trim().replace(/^```(?:json)?\s*|\s*```$/g, '');
+  return JSON.parse(text);
+}
+
+// Calls the configured model with a JSON-schema constrained output and returns the parsed object.
+async function structuredCall(args) {
+  if (aiProvider() === 'gemini') return geminiCall({ maxTokens: 8000, ...args });
+  return claudeCall(args);
+}
+
+async function claudeCall({ system, content, schema, maxTokens = 8000 }) {
   const response = await getClient().beta.messages.create({
     model: MODEL,
     max_tokens: maxTokens,
@@ -57,6 +135,11 @@ async function structuredCall({ system, content, schema, maxTokens = 8000 }) {
 }
 
 function describeError(err) {
+  if (err.provider === 'gemini') {
+    if (err.status === 400 || err.status === 403) return `Gemini rejected the request (check GEMINI_API_KEY): ${err.message}`;
+    if (err.status === 429) return 'rate limited';
+    return err.message;
+  }
   if (err instanceof Anthropic.AuthenticationError) return 'invalid API key';
   if (err instanceof Anthropic.RateLimitError) return 'rate limited';
   if (err instanceof Anthropic.BadRequestError) return `bad request: ${err.message}`;
@@ -134,8 +217,8 @@ export function mergeTriage(rule, ai, lang, latencyMs = 0) {
   const firstAid = Array.isArray(ai.first_aid) && ai.first_aid.length ? ai.first_aid.slice(0, 6) : rule.firstAid;
   return {
     ...rule,
-    engine: 'claude',
-    model: MODEL,
+    engine: aiProvider() || 'claude',
+    model: modelName(),
     latencyMs,
     type,
     label: def.label[lang] || def.label.en,
@@ -181,7 +264,7 @@ export async function aiVision({ imageBase64, mediaType = 'image/jpeg', lang = '
         { type: 'text', text: 'Analyse this emergency photo.' },
       ],
     });
-    return { engine: 'claude-vision', ...out };
+    return { engine: `${aiProvider()}-vision`, ...out };
   } catch (err) {
     return { engine: 'error', error: describeError(err) };
   }
@@ -204,7 +287,7 @@ export async function aiHandover(c) {
       },
       content: `Case data:\n${JSON.stringify({ triage: c.triage, patient: c.patient, vision: c.vision, bedType: c.bedType, etaMin: c.etaMin })}\n\nDraft (improve it):\n${fallback}`,
     });
-    return { text: out.sbar || fallback, engine: 'claude' };
+    return { text: out.sbar || fallback, engine: aiProvider() };
   } catch (err) {
     return { text: fallback, engine: 'template', aiError: describeError(err) };
   }
