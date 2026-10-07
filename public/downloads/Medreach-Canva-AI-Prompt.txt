@@ -1,0 +1,132 @@
+Create a professional, modern 10-slide hackathon presentation (16:9) for "Medreach", an AI-powered emergency healthcare coordination platform for Madhya Pradesh, India.
+
+DESIGN
+- Colours: deep navy #0B1427 (cover and closing slides), white content slides, teal #0F9488 as the main accent, red #E11D48 for urgency, plus blue #2563EB, amber #D97706, violet #7C3AED and green #16A34A for icons.
+- Style: clean healthcare-tech look, rounded cards, flat icons inside coloured circles, big bold numbers for statistics, no stock-photo clutter.
+- Fonts: bold sans-serif headings, simple sans-serif body text. Keep text left-aligned and readable.
+- Every slide must have a visual: icons, a diagram, a timeline, a comparison table or stat tiles.
+- Keep ALL the content below; do not invent new statistics.
+
+SLIDES
+
+Slide 1: Medreach: The right hospital, right now, confirmed before you leave home
+Subtitle: AI-powered emergency coordination for Madhya Pradesh
+- Understands the emergency in Hindi, English or Hinglish
+- Finds a hospital that can treat it right now, using staff-verified data
+- Gets the hospital to accept the patient before the family travels
+- Guides the patient there with live tracking
+- MPOnline Idea & Innovation Hackathon 2026 · Challenge 5 · Healthcare
+- Live demo: medreach-wtne.onrender.com · Code: github.com/prakharporwal518-collab/Medreach
+Visual idea: Dark navy cover, Medreach logo (teal square with red medical cross over a bridge arc), illustration of a phone, hospital and ambulance.
+
+Slide 2: Introduction: What Medreach Is
+Subtitle: An AI-powered emergency coordination platform, not a diagnosis app
+- Citizens & families: voice-first emergency help, no login needed, “I’m alone” mode
+- Hospitals: verified status board and referrals with an AI pre-arrival note
+- Government of MP: live, audited view of emergency capacity across hospitals
+- 7 / 7 suggested technologies used
+- 2 private portals: citizen and hospital staff
+- 16 Bhopal-region hospitals in the demo network
+- 51 automated tests passing; live and deployed today
+Visual idea: Three icon rows (people, hospital, government building) and four big-number stat tiles.
+
+Slide 3: Scenario: Chest Pain at 11 pm in Bhopal
+Subtitle: A 62-year-old man has chest pain and is sweating
+- Today, step 1: family drives to the nearest hospital, chosen only by distance
+- Today, step 2: no cardiologist on duty and ICU full, discovered at the gate
+- Today, step 3: referred onward, a second trip across the city at night
+- Today, step 4: ER unprepared, golden hour lost
+- With Medreach, step 1: son speaks in Hindi, “Papa ko seene mein dard hai, pasina aa raha hai”
+- With Medreach, step 2: AI says it may indicate a heart attack; needs 24×7 emergency + cardiologist + ICU
+- With Medreach, step 3: Bansal Hospital accepts; receiving bay Resus-02 is prepared
+- With Medreach, step 4: ambulance tracked live; ER read the AI pre-arrival note in advance
+- Result: one journey instead of two, and the hospital is ready when the patient arrives (illustrative scenario)
+Visual idea: Two side-by-side panels: red “Today” with 4 numbered steps vs teal “With Medreach” with 4 numbered steps, an arrow between them.
+
+Slide 4: Overview: Why Patients Lose the Golden Hour
+Subtitle: 1,68,491 road-accident deaths in India in 2022 (MoRTH, Road Accidents in India 2022)
+- Nearest ≠ capable: maps don’t know if the specialist is on duty, the ICU is free or the CT works now
+- No trusted live status: availability is unpublished or outdated, with no owner and no time stamp
+- No acceptance first: families arrive unannounced; refusals happen at the gate
+- Panic & language: hard to type forms in panic; many prefer to speak Hindi
+- People living alone: cannot call hospitals, arrange transport and inform family at once
+- Lost information: allergies and ABHA / Ayushman details don’t reach the ER doctor
+- Affected: patients & families, rural citizens & ASHA workers, hospital ER teams, the health department
+Visual idea: Big red statistic card on the left, 6 root-cause cards with icons on the right.
+
+Slide 5: Solution: One Flow from Emergency to Confirmed Bed
+Subtitle: Every step of our flowchart is implemented and live
+- 1 Emergency: speak, type, add a photo or scan a health card
+- 2 AI understands: type, severity, red flags and needed capabilities
+- 3 Match: specialist on duty, equipment working, bed available
+- 4 Verify: freshness on every figure, who updated it and when
+- 5 Accepted: a named officer accepts and assigns a receiving bay
+- 6 Transport: ambulance or own vehicle, with a live map
+- 7 Arrival: confirmed destination, family informed through a tracking link
+- Promises: Hindi · English · Hinglish; only capable hospitals; accepted before travel; 60-second auto-fallback to the next hospital
+Visual idea: 7 coloured icon circles connected by a dashed line (horizontal process flow), 4 promise cards below.
+
+Slide 6: Technical Approach: Architecture and AI
+Subtitle: AI understands; a deterministic, tested engine decides
+- Apps: citizen PWA (voice, photo, OCR, offline), family tracking link, hospital dashboard
+- Server: API layer, Hospital ID + Staff ID + OTP login with roles, case store with live events, audit and consent
+- Engines (triage, matching, prediction) run on the server and on the phone, so triage works offline
+- Generative AI: Claude turns messy text into requirements and writes the SBAR pre-arrival note
+- Voice Bots: speak in Hindi / English; key steps read aloud
+- Computer Vision: photo of injury → visible findings
+- OCR: Ayushman / ABHA card read on the phone, shared only with consent
+- Predictive Analytics: traffic ETA, bed-on-arrival probability, ER wait, 8-hour forecast
+- Conversational AI: one follow-up question at a time; Mobile App: installable, bilingual, offline PWA
+- Stack: Node.js 22, Express 5, PWA, Leaflet + OpenStreetMap (no API keys), Tesseract.js, Web Speech, Claude SDK
+- Safety rule: severity = max(AI, rules), so AI can never lower urgency
+Visual idea: Architecture diagram (apps → server → AI / engines / integrations) plus 7 technology icons.
+
+Slide 7: Implementation: From Prototype to Statewide
+Subtitle: Built today, ready to pilot in Bhopal
+- Prototype (done): both portals live, AI triage, matching, acceptance, live maps, 51 tests
+- Pilot · Bhopal (~3 months): onboard hospitals, nodal officers, ER desk training, clinical review, SMS OTP
+- Integrate (~3–6 months): Health Facility Registry, hospital HMIS, 108 control room, ABDM, encrypted database
+- Scale · MP (~6–12 months): district-by-district rollout, state command view, IVR for feature phones
+- Risk: hospitals don’t update data → freshness on every figure, stale data ranked lower, one-click confirm
+- Risk: wrong AI reading → AI only raises urgency; deterministic matching; 108 always visible
+- Risk: no hospital answers → 60-second timeout, next suitable hospital asked
+- Risk: weak network → offline PWA runs triage and matching on the phone
+- Feasibility: low cost (open-source, free maps), fits existing hospital roles, cloud-ready
+Visual idea: 4-phase horizontal timeline with icons, integration icons, and a risk / mitigation table.
+
+Slide 8: Innovation: What Makes Medreach Different
+Subtitle: Not “where is the nearest hospital?” but “which hospital can treat this now, and has it said yes?”
+- Understands the emergency by voice in Hindi: maps No, bed portals No, helplines Operator, Medreach Yes
+- Matches capability (specialist, equipment): maps No, bed portals Beds only, helplines Manual, Medreach Yes
+- Shows freshness and who updated data: only Medreach, on every figure
+- Hospital accepts before travel, with a receiving bay: only Medreach
+- Automatic fallback to the next hospital in 60 s: only Medreach
+- AI pre-arrival SBAR note for the ER doctor: only Medreach
+- “I’m alone” mode for people living alone: only Medreach
+- Three truths kept separate: reported capacity ≠ referral accepted ≠ confirmed destination
+- Live proof: when a hospital sets its ER to “Diverting”, it disappears from every citizen’s list in under a second
+Visual idea: Comparison table (Map search / Bed portals / Helplines / Medreach) with red “No” and green Medreach column, plus innovation cards.
+
+Slide 9: Impact and Benefits
+Subtitle: Right care, the first time
+- Social: equal access for rural, elderly and Hindi-speaking citizens
+- Economic: no repeat trips or wasted visits; better use of ICU beds and specialists
+- Governance: live, audited view of emergency capacity for planning beds and ambulances
+- Educational: safe first-aid steps, “not a diagnosis” clarity, awareness of Ayushman, ABHA and 108
+- User: one button, voice, bilingual, clear status and a family tracking link
+- Health system: fewer surprise arrivals, less ER crowding, fewer inter-hospital transfers
+- Stakeholders: patient (treated sooner), family (live link), ER team (advance notice), government (audited data), 108 (destination already accepted), ASHA workers (raise an emergency by voice)
+- Pilot KPIs: time to definitive care, secondary transfers avoided, referral acceptance time, data freshness
+Visual idea: 6 impact cards with icons and a dark stakeholder panel.
+
+Slide 10: Why Should Medreach Be Selected?
+Subtitle: Thank you
+- Real, urgent problem: a life-or-death gap for citizens of Madhya Pradesh
+- Working, deployed product: both portals live today; judges can try the full flow in 3 minutes
+- All 7 technologies: each in working code
+- Safe & explainable AI: AI only raises urgency; never a diagnosis; 108 always one tap away
+- Privacy by design: consent, masked IDs, staff OTP and roles, audit logs, 24-hour deletion, DPDP Act 2023 aligned
+- Ready to scale: low-cost open stack, clear pilot plan, integration path to HFR, HMIS, 108 and ABDM
+- Our ask: a 3-month pilot with Bhopal hospitals, then state-wide integration
+- Live demo: medreach-wtne.onrender.com · Code: github.com/prakharporwal518-collab/Medreach · Hospital login: Bansal Hospital, BANSAL-ED01
+Visual idea: Dark navy closing slide with 6 reason cards, a teal “Our ask” band and “Thank you”.
