@@ -361,3 +361,10 @@ body.embedded main { padding-top: .75rem; }
 .outbox-banner { background: #fff7e8; border: 1px solid #f3c77a; color: #7a4b00; border-radius: 12px; padding: .7rem .9rem; margin: .4rem 0 .8rem; display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }
 .outbox-banner .row { gap: .4rem; }
 .offline-queued { background: #fff7e8; border: 1px solid #f3c77a; border-radius: 10px; padding: .6rem .8rem; margin: .6rem 0; }
+
+/* 108 / 102 control-room incident */
+.card.incident { border-left: 4px solid var(--brand); }
+.card.incident.alert { border-left-color: var(--critical, #d62839); background: rgba(214, 40, 57, .06); }
+.mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; letter-spacing: .02em; }
+
+.offline-banner.slow { background: #fff4d6; color: #5c3b00; }

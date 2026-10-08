@@ -108,17 +108,19 @@ function casePositions(c, tv) {
   if (t && patient && t.position && (t.mode === 'own' || t.phase)) {
     const amb = t.mode === 'ambulance';
     const where = t.phase === 'to_hospital' || !amb ? `To ${esc(hospital?.name || 'hospital')}` : t.phase === 'at_patient' ? 'With the patient' : 'Coming to you';
-    const who = amb ? `Ambulance ${esc(t.ambulance || '')} (simulated)` : t.gps ? 'Own vehicle · live GPS' : 'Own vehicle · simulated drive';
+    const who = amb ? `Ambulance ${esc(t.ambulance || t.incident?.service || '')}${t.simulated ? ' (simulated)' : ''}` : t.gps ? 'Own vehicle · live GPS' : 'Own vehicle · simulated drive';
     return { patient, hospital, vehicle: { pos: t.position, kind: amb ? 'ambulance' : 'car', path: t.path, nextPath: t.nextPath, toPatient: amb && t.phase === 'to_patient', label: `<b>${who}</b><br>${where} · ~${t.etaMin} min${t.onRoad ? '<br><small>following the road route</small>' : ''}` } };
   }
   const live = state.vpos.get(c.id);
   if (t && patient && live && t.mode === 'ambulance') {
     const where = t.phase === 'to_hospital' ? `To ${esc(hospital?.name || 'hospital')}` : t.phase === 'at_patient' ? 'With the patient' : 'Coming to you';
-    vehicle = { pos: live, kind: 'ambulance', label: `<b>Ambulance ${esc(t.ambulance || '')} (simulated)</b><br>${where} · ~${t.etaMin} min<br><small>live position</small>` };
+    vehicle = { pos: live, kind: 'ambulance', label: `<b>Ambulance ${esc(t.ambulance || t.incident?.service || '')}${t.simulated ? ' (simulated)' : ''}</b><br>${where} · ~${t.etaMin} min<br><small>live position</small>` };
   } else if (t && patient) {
     const kind = t.mode === 'ambulance' ? 'ambulance' : 'car';
-    const who = t.mode === 'ambulance' ? `Ambulance ${esc(t.ambulance || '')} (simulated)` : 'Own vehicle';
-    if (t.mode === 'ambulance' && t.phase !== 'to_hospital') {
+    const who = t.mode === 'ambulance' ? `Ambulance ${esc(t.ambulance || t.incident?.service || '')}${t.simulated ? ' (simulated)' : ''}` : 'Own vehicle';
+    if (t.mode === 'ambulance' && ['requested', 'failed'].includes(t.phase)) {
+      vehicle = null; // control room hasn't assigned a unit (or couldn't be reached)
+    } else if (t.mode === 'ambulance' && t.phase !== 'to_hospital') {
       vehicle = { pos: patient, kind, label: `<b>${who}</b><br>${t.phase === 'at_patient' ? 'With the patient' : `Coming to you · ~${t.etaMin} min`}` };
     } else if (hospital && Number.isFinite(t.etaMin)) {
       state.eta0[c.id] ??= Math.max(t.etaMin, 1);
@@ -379,7 +381,7 @@ function casesListHtml() {
               <div class="cols c2" style="margin-top:.7rem">
                 <div>
                   ${tv.hospital ? `<p>${icon('hospital', 'sm')} <b>${esc(tv.hospital.name)}</b> · ${esc(tv.hospital.area)}${tv.bay ? ` · Bay ${esc(tv.bay)}` : ''}</p>` : '<p class="muted">Hospital not confirmed yet.</p>'}
-                  ${tv.transport ? `<p>${icon('ambulance', 'sm')} ${tv.transport.mode === 'ambulance' ? `Ambulance ${esc(tv.transport.ambulance)} (simulated)` : 'Own vehicle'}${tv.transport.etaMin !== undefined ? ` · ETA ${tv.transport.etaMin} min` : ''}</p>` : ''}
+                  ${tv.transport ? `<p>${icon('ambulance', 'sm')} ${tv.transport.mode === 'ambulance' ? `Ambulance ${esc(tv.transport.ambulance || tv.transport.incident?.service || '')}${tv.transport.simulated ? ' (simulated)' : ''}${tv.transport.incident?.id ? ` · incident ${esc(tv.transport.incident.id)}` : ''}` : 'Own vehicle'}${tv.transport.etaMin !== undefined ? ` · ETA ${tv.transport.etaMin} min` : ''}</p>` : ''}
                   <a class="b sm" href="/report?track=${encodeURIComponent(c.id)}&t=${encodeURIComponent(c.trackToken)}">${icon('eye', 'sm')} Open live tracking</a>
                 </div>
                 <ul class="small" style="margin:0;padding-left:1.1rem">${tv.timeline.slice(-6).reverse().map((e) => `<li><span class="muted">${new Date(e.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span> ${esc(e.text)}</li>`).join('')}</ul>

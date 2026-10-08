@@ -4,7 +4,7 @@
 // internet. Only PUBLIC API data (hospital list, config) is ever cached –
 // patient, case and staff responses never touch the cache.
 
-const VERSION = 'medreach-v8';
+const VERSION = 'medreach-v9';
 const SHELL = [
   '/', '/index.html', '/report', '/report.html', '/login', '/login.html', '/citizen', '/citizen.html', '/hospital', '/hospital.html',
   '/css/app.css', '/css/ui.css', '/css/home.css', '/manifest.webmanifest', '/icons/icon.svg',
@@ -14,7 +14,7 @@ const SHELL = [
   '/js/app.js', '/js/api.js', '/js/i18n.js', '/js/voice.js', '/js/vision.js', '/js/ocr.js', '/js/map.js', '/js/livemap.js', '/js/hospital.js',
   '/js/icons.js', '/js/landing.js', '/js/login.js', '/js/citizen.js', '/js/citizen-store.js',
   '/shared/triage.js', '/shared/matching.js', '/shared/predict.js', '/shared/capabilities.js', '/shared/ocr-parse.js',
-  '/shared/freshness.js', '/shared/roles.js', '/shared/handover.js', '/shared/geo.js', '/shared/aadhaar.js',
+  '/shared/freshness.js', '/shared/roles.js', '/shared/handover.js', '/shared/geo.js', '/shared/aadhaar.js', '/shared/sms.js', '/shared/ems.js',
   '/vendor/leaflet/leaflet.css', '/vendor/leaflet/leaflet.js',
 ];
 

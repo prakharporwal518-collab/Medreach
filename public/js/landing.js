@@ -4,6 +4,8 @@ import { hydrateIcons, esc, icon } from './icons.js';
 import { freshness, freshnessLabel } from '/shared/freshness.js';
 import { capLabel, SPECIALIST_CAPS, EQUIPMENT_CAPS } from '/shared/capabilities.js';
 import { roadKm } from '/shared/predict.js';
+import { triage } from '/shared/triage.js';
+import { buildEmergencySms } from '/shared/sms.js';
 
 // Family tracking links used to point at "/?track=…" – forward them.
 if (new URLSearchParams(location.search).get('track')) location.replace(`/report${location.search}`);
@@ -159,17 +161,28 @@ const VIEWS = {
   },
   blood() {
     const withBank = state.hospitals.filter((h) => (h.capabilities || []).includes('blood_bank'));
-    const list = sortHospitals(withBank.filter((h) => matches(h.name, h.area)), (h) => (h.status?.erStatus === 'open' ? 1 : 0));
+    const units = (h) => Object.values(h.status?.blood || {}).reduce((n, u) => n + (u || 0), 0);
+    const q = state.q.replace(/\s/g, '').toUpperCase();
+    // Searching a group ("O-", "AB+") shows hospitals that have it, most units first.
+    const group = /^(A|B|AB|O)[+-]$/.test(q) ? q : null;
+    const list = sortHospitals(withBank.filter((h) => (group ? (h.status?.blood?.[group] || 0) > 0 : matches(h.name, h.area))), (h) => (group ? h.status.blood[group] : units(h)));
+    const total = withBank.reduce((n, h) => n + units(h), 0);
     return {
-      summary: `${withBank.length} hospitals with a blood bank on site`,
-      note: 'Stock by blood group is not reported yet – call the hospital’s blood bank to confirm units before travelling.',
-      html: list.map((h) => `
+      summary: group
+        ? `${list.length} blood banks have ${group} · ${list.reduce((n, h) => n + h.status.blood[group], 0)} units`
+        : `${total} units in ${withBank.length} hospital blood banks`,
+      note: 'Stock is updated by each hospital every 108 minutes. Search a group, e.g. “O-”. Call the blood bank to reserve units before travelling.',
+      html: list.map((h) => {
+        const b = h.status?.blood;
+        return `
         <article class="av-card">
           ${head(h, erTag(h))}
-          <div class="av-tags"><span class="tag ok">${icon('drop', 'sm')} Blood bank on site</span>${h.ayushman ? '<span class="tag">Ayushman (PM-JAY)</span>' : ''}</div>
-          ${row('Emergency beds free', `${h.status?.beds?.emergency?.free ?? 0}`)}
+          ${b ? `<div class="blood-grid">${Object.entries(b).map(([g, n]) => `<span class="bg ${n < 3 ? 'low' : ''} ${group === g ? 'hit' : ''}"><b>${esc(g)}</b>${n}</span>`).join('')}</div>`
+    : '<div class="av-tags"><span class="tag ok">Blood bank on site</span></div>'}
+          ${row('Total units', units(h))}
           ${fresh(h)}
-        </article>`).join('') || empty('No hospital matches your search.'),
+        </article>`;
+      }).join('') || empty(group ? `No blood bank reports ${group} right now – call 108 or the nearest blood bank.` : 'No hospital matches your search.'),
     };
   },
   equipment() {
@@ -263,11 +276,66 @@ function liveUpdates() {
   });
 }
 
+// ---------------------------------------------------------------- 📩 SMS channel simulator (demo mode)
+const VILLAGE = { lat: 23.60123, lng: 77.40456 }; // a village south of Berasia
+const SAMPLE = { cardiac: 'seene mein dard, pasina', snakebite: 'saanp ne kaata', pregnancy: 'pregnant woman labour pain', trauma: 'road accident bike' };
+const simSms = () => {
+  const type = $('#simType').value;
+  return buildEmergencySms({ triage: triage(SAMPLE[type], { hintType: type }), location: VILLAGE });
+};
+const bubble = (cls, text, extra = '') => `<div class="sms ${cls}"><span>${esc(text)}</span>${extra}</div>`;
+function showSimDraft() { $('#simThread').innerHTML = bubble('out', simSms()); }
+function initSmsSim() {
+  if (!state.config?.smsDemo) return;
+  $('#smsSim').hidden = false;
+  showSimDraft();
+  $('#simType').addEventListener('change', showSimDraft);
+  $('#simSend').addEventListener('click', async () => {
+    const btn = $('#simSend');
+    btn.disabled = true;
+    const text = simSms();
+    $('#simThread').innerHTML = bubble('out sent', text);
+    try {
+      const res = await fetch('/api/sms/demo', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text }) });
+      const out = await res.json();
+      if (!res.ok) throw new Error(out.error || `HTTP ${res.status}`);
+      const link = out.caseId ? `<a class="sms-link" href="/report?track=${encodeURIComponent(out.caseId)}&t=${encodeURIComponent(out.trackToken)}" target="_blank" rel="noopener">Open live tracking →</a>` : '';
+      $('#simThread').insertAdjacentHTML('beforeend', bubble('in', out.reply, link));
+      if (out.caseId) followSms(out.caseId, out.trackToken);
+    } catch (err) {
+      $('#simThread').insertAdjacentHTML('beforeend', bubble('in err', `Could not reach the server (${err.message}). In real life: call 108.`));
+    } finally {
+      setTimeout(() => { btn.disabled = false; }, 4000);
+    }
+  });
+}
+// The follow-up SMS (hospital accepted, 108 ambulance) appear in the case timeline.
+function followSms(id, token) {
+  const seen = new Set();
+  let n = 0;
+  const poll = async () => {
+    try {
+      const d = await getJSON(`/api/track/${encodeURIComponent(id)}?t=${encodeURIComponent(token)}`);
+      for (const e of d.timeline || []) {
+        const m = /^SMS to the reporter(?: \(simulated\))?: ([\s\S]+)$/.exec(e.text || '');
+        if (m && !seen.has(e.at + m[1])) {
+          seen.add(e.at + m[1]);
+          if (!/received\. Asking/.test(m[1])) $('#simThread').insertAdjacentHTML('beforeend', bubble('in', m[1]));
+        }
+      }
+      if (['arrived'].includes(d.status) || ++n > 40) return;
+    } catch { if (++n > 40) return; }
+    setTimeout(poll, 3000);
+  };
+  setTimeout(poll, 2000);
+}
+
 window.addEventListener('online', load);
 window.addEventListener('offline', () => { state.online = false; renderStatus(); });
 
 await load();
 fromHash();
+initSmsSim();
 liveUpdates();
 setInterval(refreshAmbulances, 30000);
 

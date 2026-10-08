@@ -21,6 +21,12 @@ import { HOSPITALS, AMBULANCES, SEED_VERIFIED_MIN_AGO } from './data/hospitals.j
 import { roadKm, predictTravelMin } from '../shared/predict.js';
 import { roleLabel } from '../shared/roles.js';
 import { pointAlong, downsample, remainingPath, straightLine } from '../shared/geo.js';
+import { serviceFor, priorityFor, EMS_PHASES } from '../shared/ems.js';
+import { updateCycle } from '../shared/freshness.js';
+
+export const BLOOD_GROUPS = ['A+', 'A-', 'B+', 'B-', 'O+', 'O-', 'AB+', 'AB-'];
+// Typical share of each group in India (negatives are rare – and run out first).
+const BLOOD_SHARE = { 'A+': 0.22, 'A-': 0.02, 'B+': 0.32, 'B-': 0.02, 'O+': 0.35, 'O-': 0.02, 'AB+': 0.07, 'AB-': 0.01 };
 
 const env = globalThis.process?.env ?? {};
 const randomHex = (bytes) => Array.from(globalThis.crypto.getRandomValues(new Uint8Array(bytes)),
@@ -42,6 +48,10 @@ export function createStore({
   simulateOwnVehicle = env.SEHAT_SIMULATE_VEHICLE !== '0',
   // Field encryption for personal data; identity by default (browser demo).
   vault = { seal: (v) => v, open: (v) => v },
+  // Real 108/102 control room (server/ems.js createEmsClient); null → simulated control room.
+  ems = null,
+  // How often the 108-minute update cycle is checked (0 = never, e.g. in tests that drive it).
+  reminderIntervalMs = 30000,
 } = {}) {
   const cases = new Map();
   const channels = new Map(); // channel -> Set<res>
@@ -55,7 +65,14 @@ export function createStore({
     h.status.source = 'simulated';
     h.status.verifiedBy = { name: 'Demo seed', role: 'simulated', roleLabel: 'Simulated data' };
     h.status.verifiedAt = seedVerified && Number.isFinite(mins) ? new Date(Date.now() - mins * 60000).toISOString() : null;
+    // Demo blood-bank stock (units per group), sized by the hospital.
+    if (h.capabilities.includes('blood_bank') && !h.status.blood) {
+      const total = 20 + Object.values(h.status.beds).reduce((n, b) => n + b.total, 0) / 2;
+      h.status.blood = Object.fromEntries(BLOOD_GROUPS.map((g, i) => [g, Math.round(total * BLOOD_SHARE[g]) + ((h.id.length + i) % 3)]));
+    }
+    h.status.erDoctors ??= 2;
   }
+  const officers = new Map(); // hospitalId -> appointed Data Update Officer
 
   // ---------------------------------------------------------------- SSE hub
   function subscribe(channel, res) {
@@ -76,6 +93,12 @@ export function createStore({
 
   const getHospital = (id) => hospitals.find((h) => h.id === id);
   const now = () => new Date().toISOString();
+  let incidentSeq = 0;
+  const simulatedIncidentId = (service) => {
+    const d = new Date();
+    const ymd = `${String(d.getFullYear()).slice(2)}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
+    return `${service}-MP-${ymd}-${String(++incidentSeq).padStart(5, '0')}`;
+  };
 
   // ---------------------------------------------------------------- audit trail
   // Tamper-evident: every entry stores the hash of the previous one, so editing,
@@ -134,7 +157,8 @@ export function createStore({
       acceptedBy: c.acceptedBy ? { role: c.acceptedBy.roleLabel } : null,
       transport: c.transport ? (() => {
         const w = wire(c.transport);
-        return { mode: w.mode, etaMin: w.etaMin, phase: w.phase, ambulance: w.ambulance?.id, simulated: w.simulated, gps: w.gps, position: w.position, path: w.path, nextPath: w.nextPath, onRoad: w.onRoad };
+        return { mode: w.mode, etaMin: w.etaMin, phase: w.phase, ambulance: w.ambulance?.id, simulated: w.simulated, gps: w.gps, position: w.position, path: w.path, nextPath: w.nextPath, onRoad: w.onRoad,
+          incident: w.incident ? { id: w.incident.id, service: w.incident.service, status: w.incident.status } : null };
       })() : null,
       location: c.location,
       timeline: c.timeline.map((e) => ({ at: e.at, text: e.public ?? e.text })),
@@ -164,12 +188,13 @@ export function createStore({
     }
   }
 
-  function createCase({ triage, location, patient = {}, contact = null, lang = 'en', vision = null, text = '', consent = {}, alone = false }) {
+  function createCase({ triage, location, patient = {}, contact = null, lang = 'en', vision = null, text = '', consent = {}, alone = false, channel = 'app' }) {
     const id = `SS-${randomHex(3).toUpperCase()}`;
     const c = {
       id, createdAt: now(), status: 'new', lang, triage, location,
       consent: { patientDetails: Boolean(consent.patientDetails), location: true, at: now() },
       alone: Boolean(alone),
+      channel: channel === 'sms' ? 'sms' : 'app',
       vision,
       accessToken: randomHex(16), // for the citizen's device
       trackToken: randomHex(12),  // read-only, limited view for the trusted contact
@@ -185,11 +210,17 @@ export function createStore({
     });
     cases.set(id, c);
     log(c, 'created', `Emergency reported: ${triage.label} (${triage.severity})${alone ? ' – person is ALONE' : ''}`);
-    if (c.contact) {
+    if (c.contact && c.channel !== 'sms') {
       log(c, 'contact_notified',
         `Trusted contact ${c.contact.name} (${maskPhone(c.contact.phone)}) notified with live tracking link (SMS simulated in prototype)`);
     }
     return c;
+  }
+
+  /** Add a line to a case's timeline (e.g. an SMS that was sent). */
+  function note(caseId, event, text, publicText) {
+    const c = cases.get(caseId);
+    if (c) log(c, event, text, publicText);
   }
 
   const getCase = (id) => cases.get(id);
@@ -281,15 +312,15 @@ export function createStore({
   }
 
   // ---------------------------------------------------------------- transport (SIMULATED)
+  // Nearest suitable unit: the requested type is preferred, but not at any distance –
+  // a basic ambulance 3 km away beats an advanced one 40 km away (each step down
+  // the preference list counts as 8 extra km).
   function pickAmbulance(type, from) {
     const order = type === 'ALS' ? ['ALS', 'BLS'] : type === 'JANANI' ? ['JANANI', 'BLS', 'ALS'] : ['BLS', 'ALS', 'JANANI'];
-    for (const t of order) {
-      const pool = ambulances.filter((a) => a.available && a.type === t)
-        .map((a) => ({ a, km: roadKm(from, a) }))
-        .sort((x, y) => x.km - y.km);
-      if (pool.length && (t === order[0] || pool[0].km <= 25)) return pool[0];
-    }
-    return null;
+    const pool = ambulances.filter((a) => a.available && order.includes(a.type))
+      .map((a) => ({ a, km: roadKm(from, a), score: roadKm(from, a) + order.indexOf(a.type) * 8 }))
+      .sort((x, y) => x.score - y.score);
+    return pool[0] || null;
   }
 
   // What goes on the wire for a moving vehicle: no full route geometry every
@@ -331,10 +362,14 @@ export function createStore({
     const h = getHospital(c.hospitalId);
     c.status = 'enroute';
     if (mode !== 'ambulance') return startOwnVehicle(c, h);
+    const service = serviceFor(c.triage);
+    const incident = { ref: `MR-${c.id}`, id: null, service, priority: priorityFor(c.triage?.severity), channel: ems ? 'control-room' : 'simulated', status: 'requested' };
+    if (ems) return dispatchToControlRoom(c, h, incident);
     const pick = pickAmbulance(c.triage.ambulanceType, c.location);
     if (!pick) {
-      c.transport = { mode: 'own', startedAt: now(), etaMin: c.etaMin, note: 'No ambulance free nearby' };
-      log(c, 'enroute', 'No ambulance unit free nearby (simulated) – please use own vehicle or call 108; hospital is waiting');
+      incident.status = 'no_unit';
+      c.transport = { mode: 'own', startedAt: now(), etaMin: c.etaMin, note: 'No ambulance free nearby', incident };
+      log(c, 'enroute', `No ambulance unit free nearby (simulated) – please use own vehicle or call ${service}; hospital is waiting`);
       return c;
     }
     const amb = pick.a;
@@ -343,9 +378,11 @@ export function createStore({
     const toPatient = predictTravelMin(roadKm(amb, c.location), { hour, mode: 'ambulance' }).minutes;
     const toHospital = predictTravelMin(roadKm(c.location, h), { hour, mode: 'ambulance' }).minutes;
     const from = { lat: amb.lat, lng: amb.lng };
+    Object.assign(incident, { id: simulatedIncidentId(service), status: 'assigned' });
     const t = {
       mode: 'ambulance',
       simulated: true,
+      incident,
       ambulance: { id: amb.id, type: amb.type, base: amb.base },
       phase: 'to_patient', progress: 0,
       position: { ...from },
@@ -357,10 +394,72 @@ export function createStore({
     };
     Object.defineProperty(t, 'legs', { value: { toPatient: leg(from, c.location), toHospital: leg(c.location, h) }, enumerable: false, writable: true });
     c.transport = t;
-    log(c, 'dispatched', `Ambulance request handed to control room (SIMULATED) – unit ${amb.id} (${amb.type}) from ${amb.base}, ~${toPatient} min away`);
+    log(c, 'dispatched', `${service} control room (SIMULATED) created incident ${incident.id} – unit ${amb.id} (${amb.type}) from ${amb.base}, ~${toPatient} min away`,
+      `${service} ambulance ${amb.id} assigned (incident ${incident.id}) – ~${toPatient} min away`);
     loadRoad(t, 'toPatient', from, c.location);
     loadRoad(t, 'toHospital', c.location, h);
     simulateAmbulance(c, amb, h);
+    return c;
+  }
+
+  // Real control room: the incident goes to the state 108/102 CAD system; the
+  // ambulance's position and status then arrive through emsUpdate().
+  function dispatchToControlRoom(c, h, incident) {
+    const t = { mode: 'ambulance', simulated: false, incident, ambulance: null, phase: 'requested', progress: 0, position: null, etaMin: null, startedAt: now() };
+    c.transport = t;
+    log(c, 'dispatch_requested', `Incident ${incident.ref} sent to the ${incident.service} control room – waiting for an ambulance to be assigned`);
+    Promise.resolve()
+      .then(() => ems.dispatch({ c, h, ref: incident.ref, service: incident.service, priority: incident.priority }))
+      .then((res) => {
+        if (c.transport !== t) return;
+        incident.id = String(res.incidentId).slice(0, 64);
+        incident.status = 'received';
+        log(c, 'dispatched', `${incident.service} control room received the incident – number ${incident.id}`,
+          `${incident.service} control room received the request (incident ${incident.id})`);
+        if (res.unit || Number.isFinite(res.etaMin)) emsUpdate({ incidentRef: incident.ref, status: 'assigned', unit: res.unit, position: res.unit, etaMin: res.etaMin });
+      })
+      .catch((err) => {
+        if (c.transport !== t) return;
+        incident.status = 'failed';
+        t.phase = 'failed';
+        log(c, 'dispatch_failed', `${incident.service} control room could not be reached (${String(err?.message || err).slice(0, 80)}) – CALL ${incident.service} NOW and quote reference ${incident.ref}`,
+          `Could not reach the ${incident.service} control room – please call ${incident.service} now`);
+      });
+    return c;
+  }
+
+  const inIndia = (p) => Number.isFinite(p?.lat) && Number.isFinite(p?.lng) && p.lat > 5 && p.lat < 38 && p.lng > 67 && p.lng < 99;
+  /** Status from the control room (signed webhook). Returns the case, or null if unknown. */
+  function emsUpdate({ incidentRef, incidentId, status, unit, position, etaMin } = {}) {
+    const c = [...cases.values()].find((x) => x.transport?.incident && (x.transport.incident.ref === incidentRef || (incidentId && x.transport.incident.id === String(incidentId))));
+    if (!c || c.status === 'arrived') return c || null;
+    const t = c.transport;
+    const svc = t.incident.service;
+    if (unit?.id) {
+      const fresh = t.ambulance?.id !== String(unit.id);
+      t.ambulance = { id: String(unit.id).slice(0, 32), type: String(unit.type || '').slice(0, 12), base: String(unit.base || '').slice(0, 60) };
+      if (fresh) log(c, 'unit_assigned', `${svc} control room assigned ambulance ${t.ambulance.id}${t.ambulance.base ? ` from ${t.ambulance.base}` : ''}`, `${svc} ambulance ${t.ambulance.id} assigned`);
+    }
+    if (inIndia(position)) {
+      t.position = { lat: position.lat, lng: position.lng };
+      t.from ||= { ...t.position };
+    }
+    if (Number.isFinite(etaMin)) t.etaMin = Math.max(0, Math.round(etaMin));
+    if (status === 'arrived' || status === 'handed_over') { t.incident.status = 'completed'; arrive(c.id); return c; }
+    if (status === 'cancelled') {
+      t.incident.status = 'cancelled';
+      t.phase = 'failed';
+      log(c, 'dispatch_cancelled', `${svc} control room cancelled incident ${t.incident.id || t.incident.ref} – call ${svc} now`, `Ambulance request cancelled by the ${svc} control room – please call ${svc}`);
+      return c;
+    }
+    const phase = EMS_PHASES[status];
+    if (phase && phase !== t.phase) {
+      t.phase = phase;
+      t.incident.status = status;
+      if (phase === 'at_patient') log(c, 'at_patient', `Ambulance ${t.ambulance?.id || ''} reached the patient`.trim());
+      if (phase === 'to_hospital') log(c, 'to_hospital', `Patient on board – heading to ${getHospital(c.hospitalId)?.name}`);
+    }
+    if (t.position) publishMove(c);
     return c;
   }
 
@@ -439,7 +538,7 @@ export function createStore({
     c.arrivedAt = now();
     const h = getHospital(c.hospitalId);
     if (c.transport?.mode === 'ambulance') {
-      const amb = ambulances.find((a) => a.id === c.transport.ambulance.id);
+      const amb = ambulances.find((a) => a.id === c.transport.ambulance?.id);
       if (amb) { amb.available = true; Object.assign(amb, amb.home); }
       c.transport.progress = 1;
       c.transport.etaMin = 0;
@@ -504,6 +603,16 @@ export function createStore({
       set('equipment down', s.equipmentDown.join('+') || 'none', next.join('+') || 'none');
       s.equipmentDown = next;
     }
+    if (patch.blood && typeof patch.blood === 'object' && s.blood) {
+      for (const g of BLOOD_GROUPS) {
+        const v = patch.blood[g];
+        if (!Number.isFinite(v)) continue;
+        const n = Math.max(0, Math.min(999, Math.round(v)));
+        set(`blood ${g}`, s.blood[g], n);
+        s.blood[g] = n;
+      }
+    }
+    if (Number.isFinite(patch.erDoctors)) { const n = Math.max(0, Math.min(200, Math.round(patch.erDoctors))); set('ER doctors', s.erDoctors, n); s.erDoctors = n; }
     if (Number.isFinite(patch.erQueue)) { const n = Math.max(0, Math.min(500, Math.round(patch.erQueue))); set('ER queue', s.erQueue, n); s.erQueue = n; }
     if (Number.isFinite(patch.ventilatorsFree)) { const n = Math.max(0, Math.min(500, Math.round(patch.ventilatorsFree))); set('ventilators free', s.ventilatorsFree, n); s.ventilatorsFree = n; }
     s.verifiedAt = now();
@@ -512,7 +621,9 @@ export function createStore({
     s.verifiedBy = actor
       ? { staffId: actor.staffId, name: actor.name, role: actor.role, roleLabel: actor.roleLabel || roleLabel(actor.role) }
       : { name: 'System', role: 'system', roleLabel: 'System' };
-    audit({ ...(actor || {}), hospitalId: id, action: changes.length ? 'status.updated' : 'status.verified', result: changes.join('; ') || 'figures confirmed current' });
+    const asOfficer = actor && officers.get(id)?.staffId === actor.staffId ? ' (as Data Update Officer)' : '';
+    audit({ ...(actor || {}), hospitalId: id, action: changes.length ? 'status.updated' : 'status.verified', result: `${changes.join('; ') || 'figures confirmed current'}${asOfficer}` });
+    reminded.delete(id); // a new 108-minute cycle starts now
     publish('hospitals', 'status', statusView(h));
     publish(`hospital:${id}`, 'status', statusView(h));
     return h;
@@ -538,13 +649,62 @@ export function createStore({
   function stop() {
     for (const t of timers) clearTimeout(t);
     timers.clear();
+    if (reminderTimer) clearInterval(reminderTimer);
   }
+
+  // ---------------------------------------------------------------- 108-minute update cycle
+  /** Nodal Officer appoints the staff member who keeps this hospital's availability updated. */
+  function appointUpdateOfficer(hospitalId, staff, actor) {
+    const h = getHospital(hospitalId);
+    if (!h) throw Object.assign(new Error('hospital not found'), { status: 404 });
+    const before = officers.get(hospitalId);
+    if (staff) {
+      officers.set(hospitalId, {
+        staffId: staff.staffId, name: staff.name, role: staff.role, roleLabel: staff.roleLabel || roleLabel(staff.role),
+        appointedAt: now(), appointedBy: actor ? { staffId: actor.staffId, name: actor.name, roleLabel: actor.roleLabel } : null,
+      });
+    } else officers.delete(hospitalId);
+    const after = officers.get(hospitalId) || null;
+    audit({ ...(actor || {}), hospitalId, action: 'officer.appointed', result: `Data Update Officer: ${before ? `${before.name} (${before.staffId})` : 'none'} → ${after ? `${after.name} (${after.staffId})` : 'none'}` });
+    publish(`hospital:${hospitalId}`, 'officer', { officer: after });
+    return after;
+  }
+  const updateOfficer = (hospitalId) => officers.get(hospitalId) || null;
+  const isUpdateOfficer = (hospitalId, staffId) => Boolean(staffId) && officers.get(hospitalId)?.staffId === staffId;
+
+  // Remind each hospital when its 108-minute update is coming up, due and overdue
+  // (once per stage per cycle). "Due" and "overdue" are also written to the audit log.
+  const reminded = new Map(); // hospitalId -> `${dueAt}|${state}`
+  function checkUpdateCycles(at = Date.now()) {
+    const sent = [];
+    for (const h of hospitals) {
+      const cyc = updateCycle(h.status.verifiedAt, at);
+      if (cyc.state === 'ok') continue;
+      const key = `${cyc.dueAt}|${cyc.state}`;
+      if (reminded.get(h.id) === key) continue;
+      reminded.set(h.id, key);
+      const officer = officers.get(h.id) || null;
+      const reminder = { hospitalId: h.id, ...cyc, lastUpdateAt: h.status.verifiedAt || null, officer };
+      publish(`hospital:${h.id}`, 'reminder', reminder);
+      if (cyc.state !== 'upcoming') {
+        const late = cyc.minutesLeft === null ? 'never verified' : cyc.minutesLeft < 0 ? `${-cyc.minutesLeft} min late` : 'due now';
+        audit({ hospitalId: h.id, name: 'System', role: 'system', roleLabel: 'System', action: cyc.state === 'due' ? 'update.reminder' : 'update.overdue',
+          result: `108-minute availability update ${cyc.state} (${late})${officer ? ` – reminder to ${officer.name}` : ' – no Data Update Officer appointed'}${cyc.state === 'overdue' ? ' – escalated to Nodal Officer' : ''}` });
+      }
+      sent.push(reminder);
+    }
+    return sent;
+  }
+  const reminderTimer = reminderIntervalMs > 0 ? setInterval(() => checkUpdateCycles(), reminderIntervalMs) : null;
+  reminderTimer?.unref?.();
+  if (reminderTimer) later(() => checkUpdateCycles(), 1000);
 
   return {
     hospitals, ambulances, cases,
     subscribe, publish, listeners,
-    createCase, getCase, checkCaseToken, checkTrackToken, requestAdmission, respond, startTransport, updatePosition, arrive, purge,
+    createCase, getCase, checkCaseToken, checkTrackToken, requestAdmission, respond, startTransport, updatePosition, arrive, purge, emsUpdate, note,
     getHospital, updateHospitalStatus, startStatusSimulation, stop,
+    appointUpdateOfficer, updateOfficer, isUpdateOfficer, checkUpdateCycles,
     view, hospitalView, trackView, audit, auditFor, verifyAudit,
   };
 }

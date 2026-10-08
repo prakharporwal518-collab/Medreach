@@ -12,7 +12,8 @@ const minsAgo = (m) => new Date(NOW - m * 60000).toISOString();
 test('freshness levels', () => {
   assert.equal(freshness(minsAgo(2), NOW).level, 'fresh');
   assert.equal(freshness(minsAgo(28), NOW).level, 'aging');
-  assert.equal(freshness(minsAgo(90), NOW).level, 'stale');
+  assert.equal(freshness(minsAgo(90), NOW).level, 'aging');
+  assert.equal(freshness(minsAgo(120), NOW).level, 'stale');
   assert.equal(freshness(null, NOW).level, 'stale');
   assert.match(freshnessLabel(freshness(minsAgo(2), NOW)).text, /Verified 2 min ago/);
   assert.match(freshnessLabel(freshness(null, NOW)).text, /unverified/);
