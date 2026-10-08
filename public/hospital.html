@@ -41,6 +41,7 @@
         <button class="nav-item" data-view="beds"><i data-i="bed"></i> Bed Management</button>
         <button class="nav-item" data-view="staff"><i data-i="stethoscope"></i> Doctors &amp; Staff</button>
         <button class="nav-item" data-view="resources"><i data-i="box"></i> Resources</button>
+        <button class="nav-item" data-view="control"><i data-i="ambulance"></i> 108 Control Room</button>
         <button class="nav-item" data-view="reports"><i data-i="chart"></i> Reports</button>
         <button class="nav-item" data-view="audit" id="navAudit"><i data-i="file"></i> Audit Log</button>
         <button class="nav-item" data-view="profile"><i data-i="user"></i> Profile</button>
@@ -70,6 +71,8 @@
         <button id="logoutBtn"><i data-i="logout" class="sm"></i> Log out</button>
       </div>
       <main class="page" id="view" aria-live="polite"></main>
+      <!-- Kept outside #view so the live console doesn't reload when the dashboard refreshes. -->
+      <div class="page cad-pane hidden" id="cadPane"></div>
     </div>
   </div>
 
