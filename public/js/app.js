@@ -23,6 +23,7 @@ import { capLabel, CAPABILITIES } from '/shared/capabilities.js';
 import { haversineKm } from '/shared/predict.js';
 import { freshness, freshnessLabel, ago } from '/shared/freshness.js';
 import * as citizen from './citizen-store.js';
+import './call-help.js';
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
