@@ -24,10 +24,26 @@ const STATUS = {
   to_hospital: ['To hospital', 'blue'], arrived: ['Arrived', 'green'], cancelled: ['Cancelled', 'red'],
 };
 
-function renderKeyState() {
-  $('#keyState').textContent = key
-    ? 'Actions unlocked for this tab. A wrong key is refused by the server.'
-    : 'Without the key you can watch; incidents are assigned automatically after a few seconds.';
+// Same cleaning as the server: drop "SEHAT_EMS_SECRET=", quotes and spaces.
+const cleanKey = (v) => String(v ?? '').trim().replace(/^SEHAT_EMS_SECRET\s*[=:]\s*/i, '').replace(/^["'`]+|["'`]+$/g, '').replace(/\s+/g, '');
+
+function renderKeyState(msg, tone) {
+  const el = $('#keyState');
+  el.classList.toggle('pc-ok', tone === 'ok');
+  el.classList.toggle('pc-bad', tone === 'bad');
+  el.innerHTML = msg || (key
+    ? '✅ Key accepted – actions unlocked for this tab.'
+    : 'Without the key you can watch; incidents are assigned automatically after a few seconds.');
+  $('#lockBtn').classList.toggle('hidden', !key);
+}
+
+const WHERE = 'Copy the <b>value</b> of <code>SEHAT_EMS_SECRET</code> from Render → your Medreach-2 service → <b>Environment</b> (click the eye icon, then copy) and paste only that value.';
+function keyProblem(r) {
+  if (r.reason === 'empty') return 'Paste the key first.';
+  const other = /^other:(.+)$/.exec(r.reason || '');
+  if (other) return `❌ That is <code>${esc(other[1])}</code>, not the dispatcher key. ${WHERE}`;
+  if (r.length !== r.expectedLength) return `❌ Wrong key: you pasted <b>${r.length}</b> characters, the key on this server has <b>${r.expectedLength}</b>. ${WHERE}`;
+  return `❌ Wrong key: the length is right but some characters differ, so the value in Render is not the one you pasted. ${WHERE}`;
 }
 
 function incidentCard(r) {
@@ -124,11 +140,39 @@ async function load() {
   drawMap(data);
 }
 
-$('#keyForm').addEventListener('submit', (e) => {
+$('#keyForm').addEventListener('submit', async (e) => {
   e.preventDefault();
-  key = $('#key').value.trim();
-  try { sessionStorage.setItem(KEY, key); } catch { /* ignore */ }
-  $('#key').value = '';
+  const typed = cleanKey($('#key').value);
+  if (!typed) { renderKeyState('Paste the key first.', 'bad'); return; }
+  const btn = e.submitter || $('#keyForm button[type="submit"]');
+  btn.disabled = true;
+  renderKeyState('Checking the key…');
+  try {
+    const res = await fetch('/api/practice-cad/key-check', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: typed }) });
+    if (res.ok) {
+      key = typed;
+      try { sessionStorage.setItem(KEY, key); } catch { /* ignore */ }
+      $('#key').value = '';
+      renderKeyState();
+      load();
+    } else if (res.status === 401) {
+      renderKeyState(keyProblem(await res.json()), 'bad');
+    } else if (res.status === 429) {
+      renderKeyState('Too many tries – wait a few minutes and try again.', 'bad');
+    } else if (res.status === 404) {
+      renderKeyState('The practice control room is switched off on this server.', 'bad');
+    } else {
+      renderKeyState(`Could not check the key (HTTP ${res.status}).`, 'bad');
+    }
+  } catch {
+    renderKeyState('Could not reach the server – check your connection.', 'bad');
+  } finally { btn.disabled = false; }
+});
+
+$('#showKey').addEventListener('change', (e) => { $('#key').type = e.target.checked ? 'text' : 'password'; });
+$('#lockBtn').addEventListener('click', () => {
+  key = '';
+  try { sessionStorage.removeItem(KEY); } catch { /* ignore */ }
   renderKeyState();
   load();
 });
@@ -140,12 +184,18 @@ $('#incidents').addEventListener('click', async (e) => {
   b.disabled = true;
   try {
     const res = await fetch(`/api/practice-cad/incidents/${encodeURIComponent(b.dataset.id)}/${b.dataset.act}`, { method: 'POST', headers: { 'X-Dispatcher-Key': key } });
-    if (res.status === 401) { toast('Wrong dispatcher key'); key = ''; try { sessionStorage.removeItem(KEY); } catch { /* ignore */ } renderKeyState(); } else if (!res.ok) toast(`Failed: HTTP ${res.status}`);
+    if (res.status === 401) { toast('Wrong dispatcher key'); key = ''; try { sessionStorage.removeItem(KEY); } catch { /* ignore */ } renderKeyState(`❌ The server refused the key. ${WHERE}`, 'bad'); } else if (!res.ok) toast(`Failed: HTTP ${res.status}`);
     else toast(b.dataset.act === 'assign' ? 'Unit assigned – Medreach informed' : 'Incident cancelled – Medreach informed');
   } catch { toast('Could not reach the server'); }
   load();
 });
 
 renderKeyState();
+// A key remembered from earlier in this tab is re-checked (the server's key may have changed).
+if (key) {
+  fetch('/api/practice-cad/key-check', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key }) })
+    .then((res) => { if (res.status === 401) { key = ''; try { sessionStorage.removeItem(KEY); } catch { /* ignore */ } renderKeyState('The saved key no longer matches – paste it again.', 'bad'); } })
+    .catch(() => {});
+}
 load();
 setInterval(load, 2000);

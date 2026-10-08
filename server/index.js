@@ -91,6 +91,7 @@ export function createApp(store = productionStore(), {
       autoAssignMs: Number(env.SEHAT_PRACTICE_CAD_ASSIGN_MS ?? 4000),
       tickMs: Number(env.SEHAT_PRACTICE_CAD_TICK_MS ?? 2000),
       dataMode,
+      otherKeys: { SEHAT_DATA_KEY: env.SEHAT_DATA_KEY, SEHAT_SMS_SECRET: env.SEHAT_SMS_SECRET },
     });
     app.locals.practiceCad = practice;
     app.use('/api/practice-cad', practice.router);

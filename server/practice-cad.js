@@ -25,6 +25,16 @@ const fail = (status, message) => { throw Object.assign(new Error(message), { st
 const inIndia = (p) => Number.isFinite(p?.lat) && Number.isFinite(p?.lng) && p.lat > 5 && p.lat < 38 && p.lng > 67 && p.lng < 99;
 const str = (v, n = 80) => String(v ?? '').slice(0, n);
 
+/**
+ * A dispatcher key as people actually paste it: with the setting's name in
+ * front ("SEHAT_EMS_SECRET=…"), in quotes, or with spaces/line breaks.
+ */
+export function cleanKey(v) {
+  let s = String(v ?? '').trim().replace(/^SEHAT_EMS_SECRET\s*[=:]\s*/i, '');
+  s = s.replace(/^["'`]+|["'`]+$/g, '');
+  return s.replace(/\s+/g, '');
+}
+
 export function createPracticeCad({
   secret,
   callbackUrl = () => 'http://127.0.0.1:3000/api/ems/updates',
@@ -34,6 +44,7 @@ export function createPracticeCad({
   autoAssignMs = 4000,
   tickMs = 2000,
   dataMode = 'demo',
+  otherKeys = {},
 }) {
   if (!secret) throw new Error('practice control room needs SEHAT_EMS_SECRET');
   const fleet = structuredClone(AMBULANCES).map((a) => ({ ...a, available: true }));
@@ -211,12 +222,27 @@ export function createPracticeCad({
   });
 
   // ---------------------------------------------------------------- HTTP
-  const keyOk = (req) => {
-    const a = Buffer.from(String(req.get('x-dispatcher-key') || ''));
-    const b = Buffer.from(secret);
-    return a.length === b.length && timingSafeEqual(a, b);
+  const same = (given, want) => {
+    const a = Buffer.from(given);
+    const b = Buffer.from(String(want || ''));
+    return b.length > 0 && a.length === b.length && timingSafeEqual(a, b);
   };
+  const keyOk = (req) => same(cleanKey(req.get('x-dispatcher-key')), secret);
   const router = express.Router();
+  // "Unlock actions" checks the key straight away and says what is wrong –
+  // without ever revealing the real key.
+  router.post('/key-check', express.json({ limit: '2kb' }), (req, res) => {
+    const key = cleanKey(req.body?.key);
+    if (same(key, secret)) return res.json({ ok: true });
+    let reason = 'mismatch';
+    if (!key) reason = 'empty';
+    else {
+      for (const [name, value] of Object.entries(otherKeys)) {
+        if (same(key, cleanKey(value))) { reason = `other:${name}`; break; }
+      }
+    }
+    res.status(401).json({ ok: false, reason, length: key.length, expectedLength: secret.length });
+  });
   router.post('/incidents', express.json({ limit: '32kb', verify: (req, _res, buf) => { req.rawBody = buf.toString('utf8'); } }), (req, res) => {
     if (!verifySignature(secret, { timestamp: req.get('x-medreach-timestamp'), signature: req.get('x-medreach-signature'), rawBody: req.rawBody })) {
       return res.status(401).json({ error: 'invalid signature' });

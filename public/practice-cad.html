@@ -41,8 +41,9 @@
         <div class="panel-head"><h3>Dispatcher</h3></div>
         <form id="keyForm" class="pc-key">
           <label class="field"><span>Dispatcher key <small class="muted">(= SEHAT_EMS_SECRET)</small></span>
-            <span class="input"><input id="key" type="password" autocomplete="off" placeholder="needed to assign or cancel"></span></label>
-          <button class="b" type="submit">Unlock actions</button>
+            <span class="input"><input id="key" type="password" autocomplete="off" spellcheck="false" placeholder="paste only the value, e.g. ad57e8…"></span></label>
+          <label class="small pc-show"><input type="checkbox" id="showKey"> Show what I pasted</label>
+          <div class="row"><button class="b" type="submit">Unlock actions</button><button class="b ghost hidden" type="button" id="lockBtn">Lock</button></div>
           <p class="small muted" id="keyState">Without the key you can watch; incidents are assigned automatically after a few seconds.</p>
         </form>
         <h3 style="margin-top:1rem">Fleet</h3>
