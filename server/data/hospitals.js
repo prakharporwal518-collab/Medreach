@@ -165,20 +165,83 @@ export const SEED_VERIFIED_MIN_AGO = {
   'dh-sehore': 12, 'dh-raisen': 112, 'gmc-vidisha': 8,
 };
 
-// SIMULATED ambulance fleet, modelled on MP's 108 / Janani Express services.
+// SIMULATED ambulance fleet, modelled on MP's 108 / Janani Express services:
+// 5–6 units stationed in every service area (ALS = advanced life support,
+// BLS = basic life support, JANANI = Janani Express for mothers & newborns).
 // The prototype does NOT dispatch real 108 vehicles; in deployment the
 // transport layer hands requests to the authorised 108 control room (CAD).
-export const AMBULANCES = [
-  { id: '108-ALS-01', type: 'ALS', base: 'Hamidia Road', lat: 23.2570, lng: 77.3990 },
-  { id: '108-ALS-02', type: 'ALS', base: 'MP Nagar', lat: 23.2330, lng: 77.4340 },
-  { id: '108-BLS-03', type: 'BLS', base: 'Kolar Road', lat: 23.1750, lng: 77.4180 },
-  { id: '108-BLS-04', type: 'BLS', base: 'Bairagarh', lat: 23.2700, lng: 77.3370 },
-  { id: 'JE-05', type: 'JANANI', base: 'Govindpura', lat: 23.2560, lng: 77.4480 },
-  { id: '108-BLS-06', type: 'BLS', base: 'Berasia', lat: 23.6320, lng: 77.4320 },
-  { id: '108-ALS-07', type: 'ALS', base: 'Sehore', lat: 23.2030, lng: 77.0870 },
-  { id: '108-BLS-08', type: 'BLS', base: 'Raisen', lat: 23.3300, lng: 77.7820 },
-  { id: '108-ALS-09', type: 'ALS', base: 'Vidisha', lat: 23.5250, lng: 77.8080 },
+const unit = (id, type, base, lat, lng) => ({ id, type, base, lat, lng });
+export const AMBULANCE_AREAS = [
+  { area: 'Bhopal – Old City', units: [
+    unit('108-ALS-01', 'ALS', 'Hamidia Road', 23.2570, 77.3990),
+    unit('108-ALS-10', 'ALS', 'Peer Gate', 23.2640, 77.4045),
+    unit('108-BLS-11', 'BLS', 'Nadra Bus Stand', 23.2655, 77.3955),
+    unit('108-BLS-12', 'BLS', 'Shahjahanabad', 23.2710, 77.3925),
+    unit('108-BLS-13', 'BLS', 'Karond', 23.3010, 77.4040),
+    unit('JE-14', 'JANANI', 'Sultania Road', 23.2625, 77.4010),
+  ] },
+  { area: 'Bhopal – Central', units: [
+    unit('108-ALS-02', 'ALS', 'MP Nagar', 23.2330, 77.4340),
+    unit('108-ALS-15', 'ALS', 'TT Nagar', 23.2345, 77.3995),
+    unit('108-BLS-16', 'BLS', 'New Market', 23.2360, 77.4015),
+    unit('108-BLS-17', 'BLS', 'Shivaji Nagar', 23.2290, 77.4140),
+    unit('108-BLS-18', 'BLS', 'Arera Colony', 23.2125, 77.4330),
+    unit('JE-19', 'JANANI', 'Habibganj', 23.2250, 77.4390),
+  ] },
+  { area: 'Bhopal – South', units: [
+    unit('108-BLS-03', 'BLS', 'Kolar Road', 23.1750, 77.4180),
+    unit('108-ALS-20', 'ALS', 'Shahpura', 23.2010, 77.4225),
+    unit('108-ALS-21', 'ALS', 'Misrod', 23.1720, 77.4720),
+    unit('108-BLS-22', 'BLS', 'Bawadiya Kalan', 23.1860, 77.4480),
+    unit('108-BLS-23', 'BLS', 'Chuna Bhatti', 23.1950, 77.4070),
+    unit('JE-24', 'JANANI', 'Danish Kunj', 23.1660, 77.4100),
+  ] },
+  { area: 'Bhopal – West', units: [
+    unit('108-BLS-04', 'BLS', 'Bairagarh', 23.2700, 77.3370),
+    unit('108-ALS-25', 'ALS', 'Bhainsakhedi', 23.2790, 77.3290),
+    unit('108-ALS-26', 'ALS', 'Lalghati', 23.2830, 77.3800),
+    unit('108-BLS-27', 'BLS', 'Kohefiza', 23.2600, 77.3720),
+    unit('108-BLS-28', 'BLS', 'Neelbad', 23.2150, 77.3500),
+    unit('JE-29', 'JANANI', 'Gandhi Nagar', 23.2930, 77.3420),
+  ] },
+  { area: 'Bhopal – East', units: [
+    unit('JE-05', 'JANANI', 'Govindpura', 23.2560, 77.4480),
+    unit('108-ALS-30', 'ALS', 'BHEL Piplani', 23.2560, 77.4690),
+    unit('108-ALS-31', 'ALS', 'Ayodhya Bypass', 23.2830, 77.4580),
+    unit('108-BLS-32', 'BLS', 'Bhanpur', 23.3080, 77.4280),
+    unit('108-BLS-33', 'BLS', 'Ashoka Garden', 23.2550, 77.4300),
+    unit('108-BLS-34', 'BLS', 'Anand Nagar', 23.2600, 77.4800),
+  ] },
+  { area: 'Berasia', units: [
+    unit('108-BLS-06', 'BLS', 'Berasia', 23.6320, 77.4320),
+    unit('108-ALS-35', 'ALS', 'Berasia CHC', 23.6330, 77.4340),
+    unit('108-BLS-36', 'BLS', 'Nazirabad', 23.5620, 77.3940),
+    unit('108-BLS-37', 'BLS', 'Gunga', 23.5450, 77.5100),
+    unit('JE-38', 'JANANI', 'Berasia Bus Stand', 23.6290, 77.4290),
+  ] },
+  { area: 'Sehore', units: [
+    unit('108-ALS-07', 'ALS', 'Sehore', 23.2030, 77.0870),
+    unit('108-ALS-39', 'ALS', 'Bhopal Naka, Sehore', 23.2100, 77.1000),
+    unit('108-BLS-40', 'BLS', 'Sehore Bus Stand', 23.2000, 77.0820),
+    unit('108-BLS-41', 'BLS', 'Ashta Road', 23.1950, 77.1000),
+    unit('JE-42', 'JANANI', 'Ichhawar Road', 23.1900, 77.0750),
+  ] },
+  { area: 'Raisen', units: [
+    unit('108-BLS-08', 'BLS', 'Raisen', 23.3300, 77.7820),
+    unit('108-ALS-43', 'ALS', 'Raisen Bus Stand', 23.3330, 77.7880),
+    unit('108-BLS-44', 'BLS', 'Diwanganj', 23.3720, 77.6830),
+    unit('108-BLS-45', 'BLS', 'Salamatpur', 23.4580, 77.7330),
+    unit('JE-46', 'JANANI', 'Raisen Fort Road', 23.3280, 77.7750),
+  ] },
+  { area: 'Vidisha', units: [
+    unit('108-ALS-09', 'ALS', 'Vidisha', 23.5250, 77.8080),
+    unit('108-ALS-47', 'ALS', 'Bareth Road', 23.5150, 77.8200),
+    unit('108-BLS-48', 'BLS', 'Vidisha Bus Stand', 23.5280, 77.8150),
+    unit('108-BLS-49', 'BLS', 'Sanchi', 23.4800, 77.7400),
+    unit('JE-50', 'JANANI', 'Durga Nagar', 23.5300, 77.7990),
+  ] },
 ];
+export const AMBULANCES = AMBULANCE_AREAS.flatMap(({ area, units }) => units.map((u) => ({ ...u, area })));
 
 // A sensible demo location (New Market, Bhopal) for when GPS is unavailable
 // or the user is outside the covered region.

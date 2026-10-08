@@ -19,6 +19,7 @@ import { STAFF } from './data/staff.js';
 import { ROLES, roleLabel } from '../shared/roles.js';
 import { createCitizenAuth } from './citizen-auth.js';
 import { parseEmergencySms, smsText, maxSeverity } from '../shared/sms.js';
+import { checkCapability } from '../shared/capabilities.js';
 
 const fail = (status, message) => { throw Object.assign(new Error(message), { status }); };
 
@@ -120,6 +121,7 @@ export function createApi({
         if (done) return;
         if (c.status === 'accepted' && !accepted) { accepted = true; queueMicrotask(onAccepted); return; }
         const key = c.requests.length;
+        if (accepted || c.reroute) return; // after acceptance any re-routing is handled by orchestrateReroute
         if (['declined', 'timeout'].includes(c.status) && !handled.has(key)) {
           handled.add(key);
           const previous = store.getHospital(c.hospitalId)?.name;
@@ -131,6 +133,62 @@ export function createApi({
     const timer = setTimeout(finish, 3 * 60 * 60 * 1000);
     timer.unref?.();
     tryNext(null);
+  }
+
+  // ---------------------------------------------------------------- 🔁 auto re-route
+  // The accepting hospital can no longer receive the patient. Ask the next capable
+  // hospitals one by one (ranked from where the patient is now); the ambulance keeps
+  // coming and is redirected the moment one accepts. If none can, go to the nearest
+  // open emergency department for stabilisation. Server-side: works even if the
+  // family's phone has no internet.
+  function orchestrateReroute(c) {
+    const r = c.reroute;
+    const t = c.transport;
+    const origin = t?.position && (t.phase === 'to_hospital' || t.mode === 'own') ? t.position : c.location;
+    const mode = t?.mode === 'own' ? 'private' : 'ambulance';
+    const pool = store.hospitals.filter((h) => !r.tried.includes(h.id));
+    const ranked = rankHospitals(c.triage, origin, pool, { mode });
+    const options = ranked.options.slice(0, 4);
+    let next = 0;
+    let done = false;
+    const handled = new Set();
+    const finish = () => { if (!done) { done = true; unsubscribe(); clearTimeout(timer); } };
+    const fallback = () => {
+      const er = [...ranked.options, ...ranked.excluded]
+        .filter((o) => !c.reroute.tried.includes(o.hospital.id) && o.erStatus !== 'diverting' && checkCapability(o.hospital, 'emergency').live)
+        .sort((a, b) => a.etaMin - b.etaMin)[0];
+      if (er) store.stabiliseAt(c.id, er.hospital.id);
+      else store.rerouteFailed(c.id);
+    };
+    const tryNext = () => {
+      if (done) return;
+      if (!c.reroute?.active) { finish(); return; }
+      if (next >= options.length) { finish(); fallback(); return; }
+      const o = options[next++];
+      requestHospital(c, o.hospital.id, optionWire(o)).catch(() => tryNext());
+    };
+    const unsubscribe = store.subscribe(`case:${c.id}`, {
+      write() {
+        if (done) return;
+        if (!c.reroute?.active) {
+          finish();
+          const phone = c.channel === 'sms' ? c.contact?.phone : null;
+          const to = store.getHospital(c.hospitalId);
+          if (phone && to && ['accepted', 'enroute'].includes(c.status)) {
+            queueMicrotask(() => sendSms(c, phone, smsText('rerouted', { caseId: c.id, previous: r.fromName, hospital: to.name }, c.lang === 'hi' ? 'hi' : 'en')));
+          }
+          return;
+        }
+        const key = c.requests.length;
+        if (['declined', 'timeout'].includes(c.status) && !handled.has(key)) {
+          handled.add(key);
+          queueMicrotask(tryNext);
+        }
+      },
+    });
+    const timer = setTimeout(finish, 60 * 60 * 1000);
+    timer.unref?.();
+    tryNext();
   }
 
   async function smsEmergency({ from = null, text = '' } = {}) {
@@ -195,7 +253,15 @@ export function createApi({
     // ---------------------------------------------------------------- 🏥 deterministic matching
     ['GET', /^\/api\/hospitals$/, () => store.hospitals.map(publicHospital)],
     // Public fleet status: unit, type, base and whether it is free. Never patient data or live position.
-    ['GET', /^\/api\/ambulances$/, () => store.ambulances.map(({ id, type, base, available }) => ({ id, type, base, available: Boolean(available) }))],
+    ['GET', /^\/api\/ambulances$/, () => {
+      // Availability comes from whichever fleet dispatches: the practice 108 control room's, else the built-in one.
+      const live = integrations.liveFleet?.();
+      const busy = live ? new Map(live.map((u) => [u.id, u.available])) : null;
+      return store.ambulances.map(({ id, type, base, area, home, lat, lng, available }) => ({
+        id, type, base, area, lat: (home || { lat }).lat, lng: (home || { lng }).lng,
+        available: Boolean(busy?.has(id) ? busy.get(id) : available),
+      }));
+    }],
     ['POST', /^\/api\/match$/, ({ body }) => {
       const { triage, location, mode = 'ambulance', lang = 'en', excludeIds = [] } = body;
       if (!triage?.required || !Number.isFinite(location?.lat) || !Number.isFinite(location?.lng)) {
@@ -279,6 +345,13 @@ export function createApi({
     ['POST', /^\/api\/hospitals\/([^/]+)\/cases\/([^/]+)\/respond$/, ({ params, body, token }) => {
       const staff = auth.require(token, 'referral.respond', params[0]);
       const c = store.respond(params[1], params[0], { accept: Boolean(body.accept), reason: body.reason, bay: body.bay, actor: staff });
+      return store.hospitalView(c);
+    }],
+    // Accepted patient can no longer be received here → release the bed and auto re-route.
+    ['POST', /^\/api\/hospitals\/([^/]+)\/cases\/([^/]+)\/release$/, ({ params, body, token }) => {
+      const staff = auth.require(token, 'referral.respond', params[0]);
+      const c = store.releaseCase(params[1], params[0], { reason: String(body.reason || '').trim().slice(0, 120), actor: staff });
+      orchestrateReroute(c);
       return store.hospitalView(c);
     }],
     ['PATCH', /^\/api\/hospitals\/([^/]+)\/status$/, ({ params, body, token }) => {

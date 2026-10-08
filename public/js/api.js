@@ -59,6 +59,11 @@ export async function hospitals() {
   }
 }
 
+/** Public ambulance fleet (home stations); null when offline. */
+export async function ambulances() {
+  try { return await json('/api/ambulances', { timeout: 8000 }); } catch { return null; }
+}
+
 export async function match(payload) {
   try {
     return await json('/api/match', { method: 'POST', body: payload, timeout: 12000 });

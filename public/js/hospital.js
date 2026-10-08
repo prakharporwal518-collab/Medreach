@@ -85,6 +85,7 @@ async function demoLogin(hospitalId, role = 'ED01') {
 async function logout({ stay = false } = {}) {
   const token = state.auth?.token;
   state.auth = null;
+  clearTimeout(softRender.t);
   session.clear();
   state.es?.close();
   if (token) fetch('/api/auth/logout', { method: 'POST', headers: { Authorization: `Bearer ${token}` } }).catch(() => {});
@@ -177,6 +178,34 @@ async function respond(id, accept) {
   } catch (err) { toast(err.message); }
 }
 
+// The accepted patient can no longer be received (e.g. a critical walk-in took the ICU bed):
+// release the bed and let Medreach re-route the patient to the next capable hospital.
+function askReroute(id) {
+  const c = state.cases.get(id);
+  if (!c) return;
+  const dlg = $('#rerouteModal');
+  const f = $('#rerouteForm');
+  f.reset();
+  f.dataset.case = id;
+  $('#rrCase').innerHTML = `<b>${esc(c.triage.icon)} ${esc(c.triage.label)}</b> · ${esc(c.id)} · ${prio(c.triage.severity)} · ${c.transport ? esc(transportText(c)) : 'transport not chosen yet'}`;
+  $('#caseModal').open && $('#caseModal').close();
+  dlg.showModal();
+}
+async function release(id, reason) {
+  const btn = $('#rrGo');
+  btn.disabled = true;
+  try {
+    const c = await api(`/api/hospitals/${state.hospital.id}/cases/${id}/release`, { method: 'POST', body: { reason } });
+    // The referral now belongs to whichever hospital accepts next – it leaves this list.
+    state.cases.delete(c.id);
+    state.amb.delete(c.id);
+    $('#rerouteModal').close();
+    await loadAudit();
+    render();
+    toast(`Bed released · ${c.id} is being re-routed to the next hospital – the ambulance keeps coming`);
+  } catch (err) { toast(err.message); } finally { btn.disabled = false; }
+}
+
 function connect() {
   state.es?.close();
   const es = new EventSource(`/api/stream/hospital/${state.hospital.id}?token=${encodeURIComponent(state.auth.token)}`);
@@ -261,6 +290,7 @@ function statusPill(c) {
     requested: '<span class="pill amber">Awaiting response</span>', accepted: '<span class="pill green">Accepted</span>',
     enroute: '<span class="pill blue">On the way</span>', arrived: '<span class="pill green">Arrived · handed over</span>',
     declined: '<span class="pill gray">Declined</span>', timeout: '<span class="pill gray">Timed out</span>',
+    rerouting: '<span class="pill violet">Released · re-routing</span>',
   }[c.status] || `<span class="pill gray">${esc(c.status)}</span>`;
 }
 function patientName(c) {
@@ -433,6 +463,7 @@ function caseCard(c) {
         ${c.handover ? `<span class="pill violet">note: ${c.handover.engine === 'claude' ? 'Claude AI' : c.handover.engine === 'gemini' ? 'Gemini AI' : 'template'}</span>` : ''}</div>
       ${c.handover ? `<pre class="sbar">${esc(c.handover.text)}</pre>` : ''}
       <p class="small muted">Needs: ${tr.required.map((x) => esc(capLabel(x))).join(', ')}</p>
+      ${rerouteNote(c)}
       ${c.status === 'requested' ? `
         <div class="row">
           <span class="input grow" style="max-width:280px">${icon('bed', 'sm')}<input id="bay-${esc(c.id)}" placeholder="Receiving bay, e.g. Resus-02" ${respondOk ? '' : 'disabled'}></span>
@@ -440,7 +471,15 @@ function caseCard(c) {
           <button class="b" data-decline="${esc(c.id)}" ${respondOk ? '' : 'disabled'}>Decline</button>
         </div>${respondOk ? '' : '<p class="small muted">Your role cannot respond to referrals.</p>'}`
       : c.acceptedBy ? `<p class="small">Accepted by <b>${esc(c.acceptedBy.roleLabel)}</b>${c.acceptedBy.name && c.acceptedBy.role !== 'simulated' ? ` (${esc(c.acceptedBy.name)})` : ''} · bay <b>${esc(c.bay)}</b></p>` : ''}
+      ${['accepted', 'enroute'].includes(c.status) && respondOk ? `
+        <div class="row"><button class="b sm" data-reroute="${esc(c.id)}" title="Release the reserved bed; Medreach finds the next hospital and redirects the ambulance">🔁 Bed no longer available – re-route</button></div>` : ''}
     </div>`;
+}
+// Where a re-routed referral came from, so the receiving team knows the history.
+function rerouteNote(c) {
+  const from = (c.reroutes || []).filter((x) => x.fromHospitalId !== state.hospital.id);
+  if (!from.length) return c.stabilisation ? '<p class="reroute-note">🚑 <b>Stabilisation:</b> no specialist hospital could take this patient – stabilise here, then arrange onward transfer.</p>' : '';
+  return `<p class="reroute-note">🔁 <b>Re-routed</b> from ${from.map((x) => `${esc(x.fromName)}${x.reason ? ` (${esc(x.reason)})` : ''}`).join(', then ')}${c.stabilisation ? ' · <b>for stabilisation</b> – arrange onward transfer' : ''}</p>`;
 }
 
 function viewCases() {
@@ -803,7 +842,7 @@ function renderBadges() {
 }
 
 function render() {
-  if (!state.hospital) return;
+  if (!state.hospital || !state.auth) return; // signed out (e.g. a delayed live update after logout)
   if (state.map) { state.map.destroy(); state.map = null; }
   $('#view').innerHTML = VIEWS[state.view]();
   showControlPane(state.view === 'control');
@@ -935,6 +974,8 @@ document.addEventListener('click', (e) => {
   if (acc && !acc.disabled) { respond(acc.dataset.accept, true); return; }
   const dec = t.closest('[data-decline]');
   if (dec && !dec.disabled) { respond(dec.dataset.decline, false); return; }
+  const rr = t.closest('[data-reroute]');
+  if (rr && !rr.disabled) { askReroute(rr.dataset.reroute); return; }
   const tab = t.closest('[data-tab]');
   if (tab) { state.caseTab = tab.dataset.tab; render(); return; }
   const act = t.closest('[data-act="verify"]');
@@ -957,6 +998,13 @@ document.addEventListener('click', (e) => {
 async function boot() {
   hydrateIcons();
   $('#caseModal').addEventListener('close', () => { state.modalMap?.destroy(); state.modalMap = null; state.modalCase = null; });
+  $('#rerouteForm').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const f = e.currentTarget;
+    const pick = f.elements.reason.value;
+    const reason = pick === 'other' ? f.elements.other.value.trim() || 'Bed no longer available' : pick;
+    release(f.dataset.case, reason);
+  });
   for (const b of document.querySelectorAll('.nav-item[data-view]')) b.onclick = () => go(b.dataset.view);
   $('#menuBtn').onclick = () => $('#side').classList.toggle('open');
   $('#userBtn').onclick = () => $('#userMenu').classList.toggle('hidden');

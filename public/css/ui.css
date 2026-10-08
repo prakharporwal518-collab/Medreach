@@ -253,6 +253,10 @@ table.t tr:last-child td { border-bottom: 0; }
 .modal::backdrop { background: rgba(8, 14, 26, .6); }
 .modal .m-head { display: flex; align-items: center; justify-content: space-between; padding: 1rem 1.2rem; border-bottom: 1px solid var(--line); }
 .modal .m-body { padding: 1rem 1.2rem 1.3rem; max-height: 70vh; overflow: auto; }
+.rr-reasons { border: 1px solid var(--line); border-radius: 12px; padding: .6rem .8rem; margin: .6rem 0 0; display: grid; gap: .45rem; }
+.rr-reasons label { display: flex; align-items: center; gap: .5rem; font-size: .92rem; cursor: pointer; }
+.rr-reasons input[type="text"] { flex: 1; min-width: 0; border: 1px solid var(--line); border-radius: 8px; padding: .3rem .5rem; background: var(--surface); color: var(--ink); font: inherit; }
+.reroute-note { margin: .5rem 0; padding: .5rem .7rem; border-radius: 10px; background: var(--violet-soft); color: var(--violet); font-size: .88rem; }
 pre.sbar { white-space: pre-wrap; background: var(--surface-2); border: 1px solid var(--line); border-radius: 10px; padding: .75rem; font: .82rem/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; margin: .5rem 0; }
 
 .chart { display: flex; align-items: flex-end; gap: 8px; height: 150px; padding-top: 1.3rem; border-bottom: 1px solid var(--line); }

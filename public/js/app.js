@@ -484,8 +484,8 @@ function freshBadge(f) {
   return `<span class="badge fresh-${f.level}" title="${esc(l.text)}">${l.icon} ${esc(l.text)}</span>`;
 }
 
-// Match score bands shown on each hospital card (full breakdown under "what does it mean?").
-const scoreBand = (n) => (n >= 75 ? 'hi' : n >= 55 ? 'mid' : 'lo');
+// Chance that the bed is still free on arrival (Poisson model in shared/predict.js), coloured by band.
+const probBand = (p) => (p >= 0.7 ? 'hi' : p >= 0.4 ? 'mid' : 'lo');
 
 function hospitalCard(o, extraClass = '') {
   const s = t();
@@ -505,7 +505,7 @@ function hospitalCard(o, extraClass = '') {
       <div class="kpis">
         <div class="kpi"><b>${o.etaMin}</b><span>${s.min} ${s.eta}</span></div>
         <div class="kpi"><b>${o.bed.freeNow}</b><span>${o.bedType.toUpperCase()} ${s.reported}</span></div>
-        <div class="kpi match ${scoreBand(o.score)}" title="${esc(s.scoreLabel(o.score))}"><b>${o.score}<small>/100</small></b><span>${s.matchQuality[scoreBand(o.score)]}</span></div>
+        <div class="kpi prob ${o.capacityVerified ? probBand(o.bed.probability) : ''}" title="${esc(s.bedProbHint)}"><b>${o.capacityVerified ? `${Math.round(o.bed.probability * 100)}%` : '?'}</b><span>${s.bedProb}</span></div>
         <div class="kpi"><b>${o.erWaitMin}</b><span>${s.min} ${s.erWait}</span></div>
       </div>
       <h4 class="why">${s.whyThis}</h4>
@@ -707,7 +707,7 @@ function ladder(c) {
   const src = (rc?.source ?? o.hospital.status?.source) === 'dashboard' ? s.srcDashboard : s.srcSimulated;
   const by = rc?.verifiedBy?.roleLabel && rc.source === 'dashboard' ? ` · ${esc(rc.verifiedBy.roleLabel)}` : '';
   const req = c?.requests?.at(-1);
-  const status = c?.status === 'requested' ? 'pending'
+  const status = ['requested', 'rerouting'].includes(c?.status) ? 'pending'
     : ['accepted', 'enroute', 'arrived'].includes(c?.status) ? 'accepted'
       : c?.status === 'declined' ? 'declined' : c?.status === 'timeout' ? 'timeout' : 'pending';
   const confirmed = status === 'accepted';
@@ -758,6 +758,7 @@ function renderTimeline() {
     `<li><time>${new Date(e.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</time>${esc(e.text)}</li>`).join('');
   const lb = $(`#step-${state.step} #ladderBox`);
   if (lb) lb.innerHTML = ladder(state.caseData);
+  renderRerouteNote();
 }
 
 function openStream(id) {
@@ -770,6 +771,10 @@ function openStream(id) {
 
 async function onCaseUpdate(c) {
   state.caseData = { ...c, trackToken: state.trackToken };
+  // 🔁 Auto re-route: the hospital that accepted can no longer receive the patient.
+  // The server finds the next one; the family only has to watch (no client escalation).
+  if (c.reroute?.active) { showRerouting(c); return; }
+  if (c.reroute && c.destination && state.selected && c.destination.id !== state.selected.hospital.id && ['accepted', 'enroute'].includes(c.status)) adoptDestination(c);
   renderTimeline();
   if (state.step === 6 && c.transport?.incident) renderIncident(c.transport);
   const key = `${c.status}:${c.requests.length}`;
@@ -818,6 +823,69 @@ async function onCaseUpdate(c) {
     state.handled.add(key);
     showArrived();
   }
+}
+
+// 🔁 Re-route in progress: say why, who is being asked, and that the ambulance keeps coming.
+function showRerouting(c) {
+  const s = t();
+  const r = c.reroute;
+  const asking = c.status === 'requested' && c.destination ? s.rerouteAsking(c.destination.name) : '';
+  const html = `
+    <div class="spinner"></div>
+    <h2 style="text-align:center">🔁 ${s.rerouteTitle}</h2>
+    <p style="text-align:center">${esc(s.rerouteBody(r.fromName, r.reason))}</p>
+    ${asking ? `<p style="text-align:center"><b>${esc(asking)}</b></p>` : ''}
+    ${c.transport ? `<p class="small" style="text-align:center">🚑 ${esc(s.rerouteAmb)}</p>` : ''}
+    ${r.failed ? `<p class="redflag small">${esc(s.rerouteFailedMsg)}</p><a class="btn danger block" href="tel:108">📞 108</a>` : ''}`;
+  if (state.step === 6) {
+    // Stay on the live map – just show the banner above it.
+    let box = $('#rerouteBox');
+    if (!box) { box = document.createElement('div'); box.id = 'rerouteBox'; box.className = 'card reroute-box'; box.setAttribute('aria-live', 'polite'); $('#step-6').prepend(box); }
+    box.innerHTML = html;
+    if (!state.handled.has(`rr:${c.reroutes.length}`)) { state.handled.add(`rr:${c.reroutes.length}`); speak(s.rerouteTitle, state.lang); }
+    if (c.transport) onAmbulance(c.transport);
+    renderTimeline();
+    return;
+  }
+  if (state.step !== 4) go(4);
+  $('#step-4').innerHTML = `<div class="card reroute-box" aria-live="polite">${html}</div>
+    <div class="card" id="ladderBox">${ladder(c)}</div>
+    <div class="card"><ul class="timeline"></ul></div>`;
+  renderTimeline();
+}
+
+// The next hospital accepted: everything now points there.
+function adoptDestination(c) {
+  const d = c.destination;
+  const known = [...(state.match?.options || []), state.match?.stabilise].find((o) => o && o.hospital.id === d.id);
+  const prev = state.selected;
+  state.selected = known ? { ...known } : { ...prev, hospital: { ...prev.hospital, ...d, status: null }, distanceKm: Math.round(haversineKm(state.location, d) * 1.35 * 10) / 10 };
+  if (Number.isFinite(c.transport?.etaMin)) state.selected.etaMin = c.transport.etaMin;
+  if (!state.tried.includes(prev.hospital.id)) state.tried.push(prev.hospital.id);
+  const s = t();
+  speak(s.reroutedTo(hName(state.selected.hospital), c.reroutes.at(-1)?.fromName || hName(prev.hospital)), state.lang);
+  if (c.transport) {
+    // On the move: redraw the navigation towards the new hospital.
+    state.handled.add(`${c.status}:${c.requests.length}`);
+    showNavigation();
+  } else if (state.step !== 4) {
+    // Accepted before transport was chosen: the normal "accepted" screen follows.
+    go(4);
+  }
+}
+
+function renderRerouteNote() {
+  const c = state.caseData;
+  const last = c?.reroutes?.at(-1);
+  const step = $(`#step-${state.step}`);
+  if (!step || !last?.toName) return;
+  step.querySelector('#rerouteBox')?.remove();
+  if (step.querySelector('.reroute-done')) return;
+  const s = t();
+  const p = document.createElement('div');
+  p.className = 'card reroute-done';
+  p.innerHTML = `${esc(s.reroutedTo(last.toName, last.fromName))}${c.stabilisation ? `<br><span class="small">${esc(s.rerouteStabilise)}</span>` : ''}`;
+  step.prepend(p);
 }
 
 // ------------------------------------------------------------------ ⑥ transport
@@ -1052,13 +1120,15 @@ function trackHtml(d) {
   const steps = [
     ['requested', s.trk.requested], ['accepted', s.trk.accepted], ['enroute', s.trk.enroute], ['arrived', s.trk.arrived],
   ];
-  const order = ['new', 'requested', 'declined', 'timeout', 'accepted', 'enroute', 'arrived'];
+  const order = ['new', 'requested', 'declined', 'timeout', 'rerouting', 'accepted', 'enroute', 'arrived'];
   const reached = (k) => order.indexOf(d.status) >= order.indexOf(k) && !(k === 'accepted' && ['declined', 'timeout'].includes(d.status));
   return `
     <div class="card">
       <h2>👨‍👩‍👧 ${s.trackTitle}</h2>
       <p class="small muted">${s.caseId} ${esc(d.id)} · ${d.alone ? `🆘 ${s.aloneTag} · ` : ''}${esc(d.emergency || '')}</p>
       <ul class="alone-list">${steps.map(([k, label]) => `<li class="${reached(k) ? 'done' : ''}">${reached(k) ? '✅' : '⏳'} ${esc(label)}</li>`).join('')}</ul>
+      ${d.rerouting ? `<p class="reroute-box small">🔁 ${esc(s.trk.rerouting)}</p>` : ''}
+      ${(d.reroutes || []).filter((x) => x.to).map((x) => `<p class="small">${esc(s.reroutedTo(x.to, x.from))}</p>`).join('')}
       ${d.hospital ? `<p>🏥 <b>${esc(d.hospital.name)}</b> · ${esc(d.hospital.area)}${d.bay ? ` · ${s.receivingBay} ${esc(d.bay)}` : ''}</p>
         <a class="btn" target="_blank" rel="noopener" href="https://www.google.com/maps/dir/?api=1&destination=${d.hospital.lat},${d.hospital.lng}">🧭 ${s.openMaps}</a>` : ''}
       ${d.transport ? `<p>🚑 ${d.transport.mode === 'ambulance' ? `${esc(d.transport.ambulance || d.transport.incident?.service || '108')}${d.transport.simulated ? ` (${s.simulatedTag})` : ''}` : s.ownVehicle}${Number.isFinite(d.transport.etaMin) ? ` · ${s.eta} ${d.transport.etaMin} ${s.min}` : ''}${d.transport.incident?.id ? ` · ${s.incidentNo} ${esc(d.transport.incident.id)}` : ''}</p>` : ''}

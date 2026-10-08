@@ -48,3 +48,6 @@
 /* Shown inside the hospital dashboard: the dashboard already has a header. */
 .pc-embed .pc-head, .pc-embed .pc-note { display: none; }
 .pc-embed .pc-main { padding-top: .75rem; }
+
+.pc-fleet { max-height: 30rem; overflow-y: auto; padding-right: .25rem; }
+.pc-fleet li.pc-area { grid-template-columns: 1fr auto; position: sticky; top: 0; background: var(--surface, #fff); border-top: 2px solid var(--line); padding-top: .55rem; z-index: 1; }

@@ -74,7 +74,7 @@ function incidentCard(r) {
       <p class="pc-what"><b>${esc(r.complaint.label || 'Emergency')}</b> (${esc(r.complaint.severity || '?')})${r.complaint.personAlone ? ' · <b class="pc-alone">person is alone</b>' : ''}</p>
       <div class="pc-kv">
         <span>Pick-up (≈1 km)</span><b>${r.pickup.lat.toFixed(2)}, ${r.pickup.lng.toFixed(2)}</b>
-        <span>Destination</span><b>${esc(r.destination.name)}${r.destination.bay ? ` · bay ${esc(r.destination.bay)}` : ''} <span class="pill green">already accepted</span></b>
+        <span>Destination</span><b>${esc(r.destination.name)}${r.destination.bay ? ` · bay ${esc(r.destination.bay)}` : ''} <span class="pill green">already accepted</span>${r.rerouted ? ' <span class="pill amber">🔁 re-routed</span>' : ''}</b>
         <span>Unit</span><b>${r.unit ? `${esc(r.unit.id)} (${esc(r.unit.type)}) from ${esc(r.unit.base)}` : '—'}${r.assignedBy ? ` <small class="muted">by ${esc(r.assignedBy)}</small>` : ''}</b>
         <span>ETA to hospital</span><b>${Number.isFinite(r.etaMin) ? `${r.etaMin} min` : '—'}</b>
         <span>Call-back</span><b>${esc(r.callback || '—')}</b>
@@ -111,7 +111,7 @@ function drawMap(data) {
   }
   for (const a of data.fleet) {
     if (busy.has(a.id)) continue;
-    map.set(`u:${a.id}`, a, 'ambulance', { text: '🚑', popup: `<b>${esc(a.id)}</b> (${esc(a.type)})<br>${esc(a.base)} · ${a.available ? 'free' : 'on a call'}` });
+    map.set(`u:${a.id}`, a, 'ambulance', { text: '🚑', popup: `<b>${esc(a.id)}</b> (${esc(a.type)})<br>${esc(a.base)}${a.area ? ` · ${esc(a.area)}` : ''}<br>${a.available ? 'free' : 'on a call'}` });
     keep.add(`u:${a.id}`);
   }
   for (const prefix of ['p:', 'd:', 'u:', 'r:']) map.prune(prefix, keep);
@@ -157,7 +157,12 @@ async function load() {
   const free = data.fleet.filter((a) => a.available).length;
   const open = data.incidents.filter((r) => !r.closed).length;
   $('#counts').textContent = `${open} active incident${open === 1 ? '' : 's'} · ${free}/${data.fleet.length} units free`;
-  $('#fleet').innerHTML = data.fleet.map((a) => `<li><span class="mono">${esc(a.id)}</span><span class="muted">${esc(a.type)} · ${esc(a.base)}</span><span class="pill ${a.available ? 'green' : 'amber'}">${a.available ? 'free' : 'on a call'}</span></li>`).join('');
+  // Fleet grouped by service area (5–6 units each).
+  const areas = new Map();
+  for (const a of data.fleet) { const k = a.area || 'Other'; if (!areas.has(k)) areas.set(k, []); areas.get(k).push(a); }
+  $('#fleet').innerHTML = [...areas.entries()].map(([area, units]) => `
+    <li class="pc-area"><b>${esc(area)}</b><span class="pill ${units.some((a) => a.available) ? 'green' : 'amber'}">${units.filter((a) => a.available).length}/${units.length} free</span></li>
+    ${units.map((a) => `<li><span class="mono">${esc(a.id)}</span><span class="muted">${esc(a.type)} · ${esc(a.base)}</span><span class="pill ${a.available ? 'green' : 'amber'}">${a.available ? 'free' : 'on a call'}</span></li>`).join('')}`).join('');
   // Don't rebuild cards while a log is open.
   if (!document.querySelector('.pc-inc details[open]')) {
     $('#incidents').innerHTML = data.incidents.map(incidentCard).join('') || '<p class="muted">Waiting for incidents from Medreach…</p>';

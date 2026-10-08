@@ -110,6 +110,7 @@ export function createPracticeCad({
   function receive(inc) {
     if (!inc || typeof inc !== 'object') fail(400, 'incident JSON required');
     if (!/^MR-[\w-]{1,40}$/.test(String(inc.incidentRef))) fail(400, 'incidentRef missing');
+    if (inc.type === 'destination_change') return redirect(inc);
     if (!inIndia(inc.pickup) || !inIndia(inc.destination)) fail(400, 'pickup and destination must be valid coordinates');
     const service = inc.service === '102' ? '102' : '108';
     const duplicate = [...incidents.values()].find((r) => r.ref === inc.incidentRef && !r.closed);
@@ -138,6 +139,27 @@ export function createPracticeCad({
       later(() => assign(rec.id), autoAssignMs);
     }
     return { incidentId: rec.id, status: 'received' };
+  }
+
+  // Re-route from Medreach: the accepting hospital changed while the unit is on its way.
+  function redirect(inc) {
+    if (!inIndia(inc.destination)) fail(400, 'destination must be valid coordinates');
+    const rec = [...incidents.values()].find((r) => r.ref === inc.incidentRef && !r.closed);
+    if (!rec) fail(404, 'no open incident with this reference');
+    const from = rec.destination.name;
+    rec.destination = { name: str(inc.destination.name, 80), lat: inc.destination.lat, lng: inc.destination.lng, accepted: Boolean(inc.destination.accepted), bay: null };
+    rec.rerouted = (rec.rerouted || 0) + 1;
+    if (rec.unit && rec.legs) {
+      const hour = new Date().getHours();
+      const going = rec.phase === 'to_hospital';
+      const start = going ? { ...rec.position } : { ...rec.pickup };
+      rec.toHospitalMin = Math.max(1, predictTravelMin(roadKm(start, rec.destination), { hour, mode: 'ambulance' }).minutes);
+      rec.legs.toHospital = straightLine(start, rec.destination);
+      if (going) { rec.progress = 0; rec.etaMin = rec.toHospitalMin; }
+      road(start, rec.destination).then((coords) => { if (!rec.closed && rec.destination.name === str(inc.destination.name, 80)) rec.legs.toHospital = coords; });
+    }
+    note(rec, `RE-ROUTED by Medreach: ${from} can no longer receive${inc.reason ? ` (${str(inc.reason, 80)})` : ''} – new destination ${rec.destination.name} (accepted)`);
+    return { ok: true, incidentId: rec.id, status: rec.status };
   }
 
   async function road(a, b) {
@@ -231,7 +253,7 @@ export function createPracticeCad({
     destination: { name: r.destination.name, lat: r.destination.lat, lng: r.destination.lng, bay: r.destination.bay },
     status: r.status, phase: r.phase, closed: r.closed, unit: r.unit, position: r.closed ? null : r.position, etaMin: r.etaMin,
     path: !r.closed && r.legs ? downsample(r.phase === 'to_hospital' ? r.legs.toHospital : r.legs.toPatient, 40) : null,
-    assignedBy: r.assignedBy, autoAssignAt: r.unit || r.closed ? null : r.autoAssignAt || null, delivery: r.delivery, history: r.history,
+    rerouted: r.rerouted || 0, assignedBy: r.assignedBy, autoAssignAt: r.unit || r.closed ? null : r.autoAssignAt || null, delivery: r.delivery, history: r.history,
   });
 
   // ---------------------------------------------------------------- HTTP
@@ -267,7 +289,7 @@ export function createPracticeCad({
     res.json({
       practice: true,
       settings: { ...settings },
-      fleet: fleet.map(({ id, type, base, lat, lng, available }) => ({ id, type, base, lat, lng, available })),
+      fleet: fleet.map(({ id, type, base, area, lat, lng, available }) => ({ id, type, base, area, lat, lng, available })),
       incidents: [...incidents.values()].reverse().map(view),
     });
   });

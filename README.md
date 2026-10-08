@@ -34,6 +34,7 @@ MPOnline Idea & Innovation Hackathon 2026
 | 5 | 📞 **Hospital acceptance** | A named staff member accepts the referral and assigns a receiving bay **before** the patient travels. |
 | 6 | 🔄 **Automatic fallback** | Decline or no response → the next suitable hospital is asked automatically. |
 | 7 | 🚑 **Transport + confirmed destination** | Ambulance request (simulated in the prototype) or own vehicle → navigation → confirmed hospital. |
+| 8 | 🔁 **Auto re-route** | If the accepting hospital loses the bed (e.g. a critical walk-in took the ICU bed), staff press *Bed no longer available*: the bed is released, the next capable hospital is asked automatically and the **same ambulance is redirected** the moment one accepts. |
 
 ---
 
@@ -126,6 +127,17 @@ For ASHA workers and village volunteers: anyone can report for someone else with
 - **Integration contract** (both directions HMAC-SHA256 signed, 5-minute replay window): Medreach `POST`s the incident JSON to `SEHAT_EMS_URL` and expects `{ incidentId, unit?, etaMin? }`; the control room `POST`s status updates to `/api/ems/updates`. See `server/ems.js`.
 - **In this prototype** no real 108 system is connected (that needs an agreement with the state's 108 operator / NHM MP), so a **simulated control room** assigns the nearest suitable unit from a demo fleet and is labelled *simulated* everywhere.
 - **Practice 108 control room** (`/practice-cad`, `server/practice-cad.js`): to show the *real* signed integration end to end, turn on a stand-in control room. Medreach then sends each incident over HTTPS to `/api/practice-cad/incidents`; the practice control room verifies the signature, auto-assigns the nearest suitable unit from its own fleet, drives it and posts signed status updates back to `/api/ems/updates`. Its dispatcher console shows a live map, the fleet and every incident; with the dispatcher key (= `SEHAT_EMS_SECRET`) a dispatcher can assign or cancel. It is labelled *Practice 108 – not the real 108* everywhere. Settings: `SEHAT_PRACTICE_CAD=on`, `SEHAT_EMS_URL=<your site>/api/practice-cad/incidents`, `SEHAT_EMS_SECRET=<long random secret>`.
+
+### 🔁 Auto re-route (the bed is gone after acceptance)
+- On an accepted patient's card the hospital desk presses **🔁 Bed no longer available – re-route** and picks a reason (*ICU bed taken by a critical walk-in*, *equipment failure*, *specialist unavailable*, *ER overloaded*, or their own). Needs the `referral.respond` permission and is written to the audit log.
+- The **reserved bed is released** at once, so the public figures stay honest.
+- The **server** ranks the remaining hospitals from where the patient is *now* (the ambulance's position if the patient is on board) and asks them **one after another**; hospitals that already declined or released are never asked again.
+- **The ambulance never stops.** While the next hospital is being asked, it keeps coming to the patient (or holds course with the patient on board). When a hospital accepts, the ambulance is redirected: a simulated unit gets the new route and ETA; a 108 control room gets a signed `destination_change` message (`server/ems.js`), which the practice control room shows as *RE-ROUTED*.
+- If nobody can take the patient, the ambulance goes to the **nearest open emergency department for stabilisation**. If even that is impossible, the family is told to **call 108**.
+- **Everyone is told:** the family app shows *"Re-routing… the ambulance keeps coming"*, then the new hospital and route. SMS-only families get a *RE-ROUTED* SMS. The family link shows the history. The new hospital sees *"Re-routed from X (reason)"*. Who released the bed stays in that hospital's audit log only.
+
+### 🚐 Ambulance fleet: 50 units, 5–6 per area
+The demo fleet has **9 service areas** (Bhopal Old City / Central / South / West / East, Berasia, Sehore, Raisen, Vidisha) with **5–6 units each**, a mix of ALS, BLS and Janani Express. The home page groups them by area (nearest area first) with live *free / on a call* status. The citizen's ambulance map shows free units within 15 km. The practice control room's fleet list is grouped the same way. When the practice control room dispatches, the public status comes from **its** fleet.
 
 ### ⏰ 108-minute hospital update cycle
 - Every hospital updates its **full availability every 108 minutes**: ER status and queue, ER doctors on shift, specialists on duty, ICU / emergency / labour beds, equipment working, ventilators, and **blood stock by group** (A+ … AB-).
@@ -315,12 +327,13 @@ shared/ (runs on server AND phone): triage · matching · predict · freshness �
 | `POST /api/cases/:id/request` · `/transport` · `/arrived` | citizen (`X-Case-Token`) | Referral, transport, arrival |
 | `GET /api/track/:id?t=` | trusted contact | Status only, no medical data |
 | `POST /api/citizen/otp` · `/api/citizen/verify` · `GET /api/citizen/me` | citizen | Aadhaar + OTP sign-in |
-| `GET /api/ambulances` | anyone | Public fleet status (unit, type, base, free / on a call) |
+| `GET /api/ambulances` | anyone | Public fleet status (unit, type, area, home station, free / on a call) |
 | `POST /api/ems/updates` | 108 control room (signed) | Incident status: unit, position, at patient, arrived |
 | `POST /api/sms/inbound` · `/api/sms/demo` | SMS gateway (signed) · demo | Emergency by SMS |
 | `GET /api/hospitals/:id/staff` · `PUT …/update-officer` | staff · Nodal Officer | Appoint the Data Update Officer |
 | `POST /api/auth/otp` · `/api/auth/verify` · `/api/auth/logout` | staff | Login |
 | `POST /api/hospitals/:id/cases/:caseId/respond` | staff (`referral.respond`) | Accept/decline + receiving bay |
+| `POST /api/hospitals/:id/cases/:caseId/release` | staff (`referral.respond`) | Bed no longer available → release the bed and **auto re-route** |
 | `PATCH /api/hospitals/:id/status` | staff (role-dependent) | Update or confirm figures → re-verifies |
 | `GET /api/hospitals/:id/audit` · `/audit/verify` | Nodal Officer / Admin | Audit log and its hash-chain check |
 | `GET /api/stream/...` | per token | Live updates (SSE) |
@@ -352,10 +365,11 @@ shared/ (runs on server AND phone): triage · matching · predict · freshness �
 0. Open the **home page** (`/`). Show the live network stats, the 7-step flow and the two separate portals. Then **Login / Register** on the phone: pick the demo Aadhaar *Ramesh Kumar*, tick consent, enter the OTP shown.
 1. **Hospital dashboard:** `/login` → **Hospital Staff** → *Bansal Hospital → BANSAL-ED01 → OTP* (shown on screen in demo). Point at the KPI tiles, *"Updated by / Time / Data source"* and the **DEMO** banner.
 2. **Phone:** say *"Papa ko seene mein dard hai, pasina aa raha hai, 62 saal"*. The app shows *"may indicate: Heart attack · CRITICAL · needs cardiologist + ICU"*. Open **How was this decided?**: AI → requirements → deterministic engine.
-3. **Find hospitals.** Walk through one **Why this hospital?** checklist, the 🟢/🟡/🔴 freshness badges (Siddhanta 🟡, People's 🔴 excluded anyway: cardiologist off duty), and tap **Match score → what does it mean?**
+3. **Find hospitals.** Walk through one **Why this hospital?** checklist, the 🟢/🟡/🔴 freshness badges (Siddhanta 🟡, People's 🔴 excluded anyway: cardiologist off duty), and point at **% bed free on arrival** on each card (the Poisson prediction; the match score is under *Match score → what does it mean?*)
 4. **Console:** set ER to **Diverting**. The phone shows a live update and Bansal disappears. Set it back to **Open**: Bansal returns as *"Verified just now"*.
 5. **Ask hospital to accept.** The console beeps and shows the SBAR note, with IDs masked and no details without consent. Enter bay *Resus-02* and **Accept referral**. The phone shows **Reported capacity → ACCEPTED by Emergency Desk Officer (name) → Confirmed destination, bay Resus-02**.
 6. **Request ambulance.** Note the *simulated* label and "Call 108 directly". Open **Preview what your contact sees**: status only, no medical details.
+6b. **Auto re-route.** On the console open **Emergency Cases → Accepted & on the way**, press **🔁 Bed no longer available – re-route** and choose *ICU bed taken by a critical walk-in patient*. The phone shows *Re-routing… the ambulance keeps coming*, and a few seconds later the new hospital, route and ETA. The ambulance is the same unit, now redirected.
 7. Log in as **BANSAL-NO01** (Nodal Officer) to show the **audit log**. On the phone, open the **citizen dashboard → My Cases**: the case shows *Accepted*, and the recent activity is updated.
 8. New tab → save a trusted contact → **🆘 I'm alone**. All five steps complete by themselves.
 

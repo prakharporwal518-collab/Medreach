@@ -80,6 +80,27 @@
     <div class="m-head"><h3 id="mTitle" style="margin:0">Referral</h3><button class="b sm ghost" data-close aria-label="Close"><i data-i="x" class="sm"></i></button></div>
     <div class="m-body" id="mBody"></div>
   </dialog>
+  <dialog class="modal" id="rerouteModal">
+    <form method="dialog" id="rerouteForm">
+      <div class="m-head"><h3 style="margin:0">🔁 Bed no longer available – re-route patient</h3><button class="b sm ghost" type="button" data-close aria-label="Close"><i data-i="x" class="sm"></i></button></div>
+      <div class="m-body">
+        <p class="small" id="rrCase"></p>
+        <p class="small muted">The reserved bed is released at once. Medreach asks the next capable hospital automatically and redirects the ambulance the moment one accepts – the ambulance keeps coming meanwhile. The family is told why.</p>
+        <fieldset class="rr-reasons">
+          <legend class="small"><b>Why can't you receive this patient now?</b></legend>
+          <label><input type="radio" name="reason" value="ICU bed taken by a critical walk-in patient" checked> ICU / emergency bed taken by a critical walk-in patient</label>
+          <label><input type="radio" name="reason" value="Equipment failure"> Equipment failure (ventilator, CT, cath lab…)</label>
+          <label><input type="radio" name="reason" value="Specialist unavailable"> Specialist / team not available</label>
+          <label><input type="radio" name="reason" value="Emergency department overloaded"> Emergency department overloaded</label>
+          <label><input type="radio" name="reason" value="other"> Other: <input type="text" name="other" maxlength="100" placeholder="short reason"></label>
+        </fieldset>
+        <div class="row" style="justify-content:flex-end;margin-top:.8rem">
+          <button class="b" type="button" data-close>Keep the patient</button>
+          <button class="b danger" type="submit" id="rrGo">🔁 Release bed &amp; re-route</button>
+        </div>
+      </div>
+    </form>
+  </dialog>
   <div class="toast" id="toast" role="status"></div>
   <script src="/vendor/leaflet/leaflet.js"></script>
   <script type="module" src="/js/hospital.js"></script>
