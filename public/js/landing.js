@@ -1,6 +1,7 @@
 // Home page: navigation, live system status and live availability.
 // Uses only PUBLIC data (hospital status and ambulance fleet) – no patient data.
 import { hydrateIcons, esc, icon } from './icons.js';
+import './call-help.js';
 import { freshness, freshnessLabel } from '/shared/freshness.js';
 import { capLabel, SPECIALIST_CAPS, EQUIPMENT_CAPS } from '/shared/capabilities.js';
 import { roadKm } from '/shared/predict.js';

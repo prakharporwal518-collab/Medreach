@@ -5,6 +5,7 @@
 // tracking token (status, hospital and ETA – never another person's data).
 import { icon, esc, initials, greeting, hydrateIcons } from './icons.js';
 import * as citizen from './citizen-store.js';
+import './call-help.js';
 import * as api from './api.js';
 import { LiveMap, statusKind, legend } from './livemap.js';
 import { roadKm } from '/shared/predict.js';
