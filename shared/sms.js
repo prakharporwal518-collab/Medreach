@@ -80,6 +80,9 @@ export function smsText(kind, d, lang = 'en') {
     case 'accepted':
       return hi ? `MEDREACH ${d.caseId}: ${d.hospital} ने मरीज़ को स्वीकार किया (बे ${d.bay}). ${d.ambulance}${d.track ? ` लाइव: ${d.track}` : ''}`
         : `MEDREACH ${d.caseId}: ${d.hospital} ACCEPTED the patient (bay ${d.bay}). ${d.ambulance}${d.track ? ` Live: ${d.track}` : ''}`;
+    case 'rerouted':
+      return hi ? `MEDREACH ${d.caseId}: री-रूट – ${d.previous} अब मरीज़ को नहीं ले सकता। ${d.hospital} ने स्वीकार किया – एम्बुलेंस वहीं जा रही है। हालत बिगड़े तो 108 पर कॉल करें।`
+        : `MEDREACH ${d.caseId}: RE-ROUTED – ${d.previous} can no longer take the patient. ${d.hospital} has ACCEPTED – the ambulance is going there. If worse, CALL 108.`;
     case 'retry':
       return hi ? `MEDREACH ${d.caseId}: ${d.previous} स्वीकार नहीं कर सका। अब ${d.hospital} से पूछ रहे हैं।`
         : `MEDREACH ${d.caseId}: ${d.previous} could not accept. Now asking ${d.hospital}.`;

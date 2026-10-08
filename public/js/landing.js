@@ -77,7 +77,7 @@ $('#avNear').addEventListener('click', () => {
     renderAvail();
   }, () => {
     btn.disabled = false;
-    state.locNote = 'Location permission was denied – showing hospitals in the usual order.';
+    state.locNote = 'Location permission was denied – showing the usual order.';
     renderAvail();
   }, { enableHighAccuracy: false, timeout: 10000, maximumAge: 300000 });
 });
@@ -103,20 +103,34 @@ const empty = (text) => `<p class="av-empty">${esc(text)}</p>`;
 // ---------------------------------------------------------------- views
 const VIEWS = {
   ambulance() {
-    const list = state.ambulances.filter((a) => matches(a.id, a.type, a.base));
+    const list = state.ambulances.filter((a) => matches(a.id, a.type, a.base, a.area));
     const free = state.ambulances.filter((a) => a.available).length;
     const TYPE = { ALS: 'Advanced Life Support', BLS: 'Basic Life Support', JANANI: 'Janani Express (mother & newborn)' };
+    // One block per service area (5–6 units each); nearest area first when location is known.
+    const areas = new Map();
+    for (const a of list) { const k = a.area || 'Other'; if (!areas.has(k)) areas.set(k, []); areas.get(k).push(a); }
+    const dist = (units) => Math.min(...units.map((a) => (state.here && Number.isFinite(a.lat) ? roadKm(state.here, a) : Infinity)));
+    const blocks = [...areas.entries()].sort((x, y) => (state.here ? dist(x[1]) - dist(y[1]) : 0));
     return {
-      summary: `${free} of ${state.ambulances.length} ambulances free right now`,
+      summary: `${free} of ${state.ambulances.length} ambulances free right now · ${new Set(state.ambulances.map((a) => a.area)).size} service areas`,
       note: state.config?.dataMode === 'demo'
         ? 'Call 108 to request an ambulance. In this prototype the fleet and dispatch are simulated.'
         : 'Call 108 to request an ambulance.',
-      html: list.map((a) => `
-        <article class="av-card">
-          <div class="av-head"><h3>${icon('ambulance', 'sm')} ${esc(a.id)}</h3>${a.available ? '<span class="tag ok">Available</span>' : '<span class="tag warn">On a call</span>'}</div>
-          ${row('Type', esc(TYPE[a.type] || a.type))}
-          ${row('Base', esc(a.base))}
-        </article>`).join('') || empty('No ambulance matches your search.'),
+      html: blocks.map(([area, units]) => {
+        const sorted = state.here ? [...units].sort((x, y) => roadKm(state.here, x) - roadKm(state.here, y)) : units;
+        const freeHere = units.filter((a) => a.available).length;
+        return `
+        <section class="av-area">
+          <h3 class="av-area-head">${icon('ambulance', 'sm')} ${esc(area)} <span class="tag ${freeHere ? 'ok' : 'warn'}">${freeHere} of ${units.length} free</span>${state.here && Number.isFinite(dist(units)) ? ` <span class="muted small">· nearest ${dist(units).toFixed(1)} km</span>` : ''}</h3>
+          <div class="av-grid">${sorted.map((a) => `
+            <article class="av-card">
+              <div class="av-head"><h3>${esc(a.id)}</h3>${a.available ? '<span class="tag ok">Available</span>' : '<span class="tag warn">On a call</span>'}</div>
+              ${row('Type', esc(TYPE[a.type] || a.type))}
+              ${row('Station', esc(a.base))}
+              ${state.here && Number.isFinite(a.lat) ? row('Distance', `${roadKm(state.here, a).toFixed(1)} km`) : ''}
+            </article>`).join('')}</div>
+        </section>`;
+      }).join('') || empty('No ambulance matches your search.'),
     };
   },
   beds() {
@@ -210,7 +224,6 @@ const VIEWS = {
 
 function renderAvail() {
   const body = $('#avBody');
-  $('#avNear').hidden = state.tab === 'ambulance';
   if (!state.online && !state.hospitals.length) {
     body.innerHTML = empty('Live availability needs a network connection. In an emergency you can still report it, or call 108.');
     $('#avSummary').textContent = '';
@@ -218,6 +231,7 @@ function renderAvail() {
   }
   const v = VIEWS[state.tab]();
   $('#avSummary').textContent = v.summary;
+  body.className = state.tab === 'ambulance' ? 'av-areas' : 'av-grid'; // ambulances come grouped by area
   body.innerHTML = v.html;
   $('#avNote').textContent = [state.locNote, v.note].filter(Boolean).join(' ');
 }

@@ -163,6 +163,19 @@ function drawMap(el, list) {
   state.map.fit();
 }
 
+// Free 108 / Janani units near the citizen (simulated fleet in the prototype).
+async function drawFleet() {
+  const fleet = await api.ambulances();
+  const note = $('#fleetNote');
+  if (!fleet || state.view !== 'ambulance' || !state.map) { if (note) note.textContent = ''; return; }
+  const near = fleet.filter((a) => a.available && Number.isFinite(a.lat))
+    .map((a) => ({ a, km: roadKm(state.loc, a) })).filter((x) => x.km <= 15).sort((x, y) => x.km - y.km);
+  for (const { a, km } of near.slice(0, 12)) {
+    state.map.set(`fleet:${a.id}`, a, 'ambulance', { text: '🚑', popup: `<b>${esc(a.id)}</b> (${esc(a.type)})<br>${esc(a.base)} · ${esc(a.area || '')}<br>free · ${km.toFixed(1)} km away` });
+  }
+  if (note) note.textContent = near.length ? `${near.length} ambulance${near.length === 1 ? '' : 's'} free within 15 km (nearest ${near[0].a.id}, ${near[0].km.toFixed(1)} km) – the control room sends the nearest suitable one.` : 'No free ambulance within 15 km right now – call 108; the control room will send the nearest unit.';
+}
+
 const MAP_LEGEND = legend([['me', 'You'], ['open', 'Open'], ['busy', 'Busy'], ['full', 'Full'], ['patient', 'Your case'], ['ambulance', 'Ambulance'], ['dest', 'Accepted hospital']]);
 const liveHead = (title) => `<div class="panel-head"><h3>${title} <span class="live-badge">LIVE</span></h3><span class="small muted liveTime"></span></div>`;
 const mapNote = '<p class="small muted" style="margin:.35rem 0 0">Numbers on pins = ICU beds free. Pins change colour the moment a hospital updates its status.</p>';
@@ -479,6 +492,7 @@ function viewAmbulance() {
       ${liveHead('Live ambulance map')}
       <div class="map-box tall" id="ambMap"></div>
       ${MAP_LEGEND}
+      <p class="small" id="fleetNote" style="margin:.35rem 0 0"></p>
       <p class="small muted" style="margin:.35rem 0 0">${activeCases().some((c) => state.track.get(c.id)?.transport?.mode === 'ambulance') ? 'Your ambulance is shown live (estimated position from its ETA).' : 'No ambulance on its way for you right now – nearby hospitals are shown. Once you request one, it appears here live.'}</p>
     </div>`;
 }
@@ -628,7 +642,7 @@ function go(view) {
 function bindView() {
   if (state.view === 'home') drawMap($('#homeMap'), nearby(25).slice(0, 8));
   if (state.view === 'cases') drawMap($('#casesMap'), nearby(25).slice(0, 6));
-  if (state.view === 'ambulance') drawMap($('#ambMap'), nearby(25).slice(0, 10));
+  if (state.view === 'ambulance') { drawMap($('#ambMap'), nearby(25).slice(0, 10)); drawFleet(); }
   if (['home', 'cases', 'ambulance', 'hospitals'].includes(state.view)) stampLive();
   if (state.view === 'hospitals') {
     drawMap($('#hospMap'), filtered().slice(0, 16));

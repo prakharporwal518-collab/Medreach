@@ -134,6 +134,8 @@
 @media (prefers-reduced-motion: reduce) { .av-live .dot { animation: none; } .cta { transition: none; } }
 .av-summary { text-align: center; font-weight: 600; color: var(--ink-2); margin: 0 0 1rem; min-height: 1.4em; }
 .av-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: .9rem; }
+.av-area { margin-bottom: 1.3rem; }
+.av-area-head { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; font-size: 1.05rem; margin: 0 0 .6rem; color: var(--ink, #0f172a); }
 .av-card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 1rem 1.1rem; box-shadow: var(--shadow); display: flex; flex-direction: column; gap: .4rem; min-width: 0; }
 .av-head { display: flex; justify-content: space-between; gap: .5rem; align-items: flex-start; }
 .av-card h3 { font-size: 1rem; margin: 0; overflow-wrap: anywhere; }

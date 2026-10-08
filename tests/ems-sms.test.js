@@ -214,8 +214,10 @@ test('simulated control room sends the nearest suitable unit, not a far-away pre
   const c = store.createCase({ triage: triage('heart attack'), location: village });
   store.requestAdmission(c.id, { hospitalId: 'bmhrc', option: { bedType: 'icu', etaMin: 40 } });
   store.respond(c.id, 'bmhrc', { accept: true, actor: { name: 'Desk', role: 'emergency_desk', roleLabel: 'Desk' } });
-  store.startTransport(c.id, { mode: 'ambulance' });
-  assert.equal(c.transport.ambulance.id, '108-BLS-06'); // Berasia's own unit, not an ALS from Bhopal
-  assert.ok(c.transport.etaToPatientMin < 15);
-  store.stop();
+  try {
+    store.startTransport(c.id, { mode: 'ambulance' });
+    assert.match(c.transport.ambulance.base, /^Berasia/); // a Berasia unit, not an ALS from Bhopal
+    assert.equal(c.transport.ambulance.type, 'ALS'); // Berasia now has its own ALS unit
+    assert.ok(c.transport.etaToPatientMin < 20, `minutes away, not the ~45+ from Bhopal (got ${c.transport.etaToPatientMin}; traffic depends on the hour)`);
+  } finally { store.stop(); }
 });

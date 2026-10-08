@@ -10,6 +10,8 @@
 //
 // Integration contract (JSON over HTTPS, both directions HMAC-signed):
 //   Medreach → control room   POST SEHAT_EMS_URL                → { incidentId, unit?, etaMin? }
+//                             POST SEHAT_EMS_URL { type: 'destination_change', incidentRef, incidentId,
+//                               destination } → { ok } (re-route: the accepting hospital changed)
 //   control room → Medreach   POST /api/ems/updates             → status of the incident
 //                             { incidentRef, incidentId?, status, unit?, position?, etaMin? (to hospital), etaToPatientMin? }
 //   Headers: X-Medreach-Timestamp (unix ms), X-Medreach-Signature: sha256=HMAC(secret, `${ts}.${rawBody}`)
@@ -73,7 +75,7 @@ export function buildIncident({ c, h, ref, service, priority }) {
  */
 export function createEmsClient({ url, secret, fetchFn = globalThis.fetch, timeoutMs = 8000, retries = 1 }) {
   if (!url || !secret) return null;
-  async function post(body) {
+  async function post(body, needsId = true) {
     const ts = Date.now();
     const res = await fetchFn(url, {
       method: 'POST',
@@ -83,18 +85,28 @@ export function createEmsClient({ url, secret, fetchFn = globalThis.fetch, timeo
     });
     if (!res.ok) throw new Error(`control room answered HTTP ${res.status}`);
     const data = await res.json();
-    if (!data?.incidentId) throw new Error('control room did not return an incident ID');
+    if (needsId && !data?.incidentId) throw new Error('control room did not return an incident ID');
     return data;
+  }
+  async function withRetry(body, needsId) {
+    let last;
+    for (let attempt = 0; attempt <= retries; attempt++) {
+      try { return await post(body, needsId); } catch (err) { last = err; }
+    }
+    throw last;
   }
   return {
     name: 'cad',
     async dispatch(input) {
-      const body = JSON.stringify(buildIncident(input));
-      let last;
-      for (let attempt = 0; attempt <= retries; attempt++) {
-        try { return await post(body); } catch (err) { last = err; }
-      }
-      throw last;
+      return withRetry(JSON.stringify(buildIncident(input)), true);
+    },
+    /** Re-route: tell the control room the patient now goes to another (accepting) hospital. */
+    async redirect({ h, ref, incidentId = null, reason = '' }) {
+      return withRetry(JSON.stringify({
+        version: '1.0', source: 'medreach', type: 'destination_change', incidentRef: ref, incidentId,
+        createdAt: new Date().toISOString(), reason: String(reason || '').slice(0, 120),
+        destination: { hospitalId: h.id, name: h.name, lat: h.lat, lng: h.lng, area: h.area, accepted: true },
+      }), false);
     },
   };
 }

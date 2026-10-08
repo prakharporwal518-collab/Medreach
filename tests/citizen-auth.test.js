@@ -142,6 +142,16 @@ test('API: citizen sign-in routes and public ambulance status', async () => {
 
     const amb = await (await fetch(`${base}/api/ambulances`)).json();
     assert.ok(amb.length > 0);
-    for (const a of amb) assert.deepEqual(Object.keys(a).sort(), ['available', 'base', 'id', 'type']);
+    // Public fleet info: id, type, home station and service area – never a live position.
+    const { AMBULANCES } = await import('../server/data/hospitals.js');
+    assert.equal(amb.length, AMBULANCES.length);
+    for (const a of amb) {
+      assert.deepEqual(Object.keys(a).sort(), ['area', 'available', 'base', 'id', 'lat', 'lng', 'type']);
+      const home = AMBULANCES.find((x) => x.id === a.id);
+      assert.deepEqual([a.lat, a.lng, a.area], [home.lat, home.lng, home.area]);
+    }
+    // Every service area has 5–6 units.
+    const perArea = Object.values(Object.groupBy(amb, (a) => a.area)).map((u) => u.length);
+    assert.ok(perArea.length >= 9 && perArea.every((n) => n >= 5 && n <= 6), String(perArea));
   } finally { store.stop(); server.close(); }
 });

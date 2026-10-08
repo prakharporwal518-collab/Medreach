@@ -52,14 +52,15 @@ export function createApp(store = productionStore(), {
   const auth = createAuth({ demoMode: dataMode === 'demo', audit: store.audit });
   cleanEnv(env);
   const practiceOn = isOn(env.SEHAT_PRACTICE_CAD) && Boolean(env.SEHAT_EMS_SECRET);
+  const integrations = {
+    emsLive: emsEnabled(env),
+    emsPractice: practiceOn && String(env.SEHAT_EMS_URL || '').includes('/api/practice-cad/'),
+    smsNumber: env.SEHAT_SMS_NUMBER || null,
+    publicUrl: env.SEHAT_PUBLIC_URL || env.RENDER_EXTERNAL_URL || '',
+    liveFleet: null, // set below when the practice control room is the dispatcher
+  };
   const api = createApi({
-    store, auth, dataMode, citizenAuth, smsSender,
-    integrations: {
-      emsLive: emsEnabled(env),
-      emsPractice: practiceOn && String(env.SEHAT_EMS_URL || '').includes('/api/practice-cad/'),
-      smsNumber: env.SEHAT_SMS_NUMBER || null,
-      publicUrl: env.SEHAT_PUBLIC_URL || env.RENDER_EXTERNAL_URL || '',
-    },
+    store, auth, dataMode, citizenAuth, smsSender, integrations,
     ai: { enabled: aiEnabled, triage: aiTriage, vision: aiVision, handover: aiHandover },
   });
 
@@ -95,6 +96,8 @@ export function createApp(store = productionStore(), {
       otherKeys: { SEHAT_DATA_KEY: env.SEHAT_DATA_KEY, SEHAT_SMS_SECRET: env.SEHAT_SMS_SECRET },
     });
     app.locals.practiceCad = practice;
+    // Its fleet is the one actually dispatching: show its availability on the public pages.
+    if (integrations.emsPractice) integrations.liveFleet = () => practice.fleet;
     app.use('/api/practice-cad', practice.router);
   }
 

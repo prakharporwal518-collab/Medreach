@@ -1,7 +1,12 @@
 // Medreach – emergency case lifecycle, real-time events, audit and privacy.
 //
 //   new ──► requested ──► accepted ──► enroute ──► arrived ──► (patient data purged after retention)
-//               │
+//               │              │            │
+//               │              └────┬───────┘
+//               │                   ▼
+//               │              rerouting  (hospital can no longer receive the patient → bed released,
+//               │                   │      the server asks the next capable hospital; the ambulance keeps
+//               │                   │      coming and is redirected as soon as one accepts)
 //               ├──► declined  (client escalates to the next hospital)
 //               └──► timeout   (no answer in time → escalate)
 //
@@ -132,6 +137,11 @@ export function createStore({
   function view(c) {
     const { responseTimer, accessToken, trackToken, ...rest } = c;
     if (rest.transport) rest.transport = wire(rest.transport);
+    // Who released a bed stays in that hospital's audit log, not on the family's / other hospitals' screens.
+    rest.reroutes = c.reroutes.map(({ by, ...x }) => x);
+    rest.requests = c.requests.map(({ releasedBy, ...x }) => x);
+    const h = c.hospitalId && getHospital(c.hospitalId);
+    rest.destination = h ? { id: h.id, name: h.name, nameHi: h.nameHi, area: h.area, lat: h.lat, lng: h.lng } : null;
     return rest;
   }
   // Receiving hospital: only what's needed for care; IDs masked; nothing without consent.
@@ -153,6 +163,8 @@ export function createStore({
       emergency: c.triage?.label,
       severity: c.triage?.severity,
       hospital: h && ['accepted', 'enroute', 'arrived'].includes(c.status) ? { name: h.name, area: h.area, lat: h.lat, lng: h.lng } : null,
+      rerouting: Boolean(c.reroute?.active),
+      reroutes: c.reroutes.map((x) => ({ from: x.fromName, to: x.toName || null, at: x.at })),
       bay: c.bay,
       acceptedBy: c.acceptedBy ? { role: c.acceptedBy.roleLabel } : null,
       transport: c.transport ? (() => {
@@ -201,6 +213,7 @@ export function createStore({
       hospitalId: null, bedType: null, etaMin: null, option: null, handover: null, bay: null,
       acceptedBy: null, acceptedAt: null, reportedCapacity: null,
       requests: [], transport: null, timeline: [],
+      bedReserved: false, reroute: null, reroutes: [],
     };
     sealFields(c, {
       text: String(text || ''),
@@ -234,6 +247,9 @@ export function createStore({
     if (['accepted', 'enroute', 'arrived'].includes(c.status)) {
       throw Object.assign(new Error(`case already ${c.status}`), { status: 409 });
     }
+    if (c.reroute?.active && c.reroute.tried.includes(hospitalId)) {
+      throw Object.assign(new Error('this hospital already released the patient'), { status: 409 });
+    }
     clearTimeout(c.responseTimer);
     c.status = 'requested';
     c.hospitalId = hospitalId;
@@ -248,9 +264,14 @@ export function createStore({
       verifiedAt: h.status.verifiedAt, verifiedBy: h.status.verifiedBy, source: h.status.source,
     };
     const consoleOnline = listeners(`hospital:${hospitalId}`) > 0;
-    c.requests.push({ hospitalId, at: now(), outcome: 'pending', simulated: !consoleOnline });
+    const reroute = Boolean(c.reroute?.active);
+    if (reroute) c.reroute.tried.push(hospitalId);
+    c.requests.push({ hospitalId, at: now(), outcome: 'pending', simulated: !consoleOnline, ...(reroute ? { reroute: true } : {}) });
     publish(`hospital:${hospitalId}`, 'request', hospitalView(c));
-    log(c, 'requested', `Referral request sent to ${h.name} – waiting for acceptance`);
+    log(c, 'requested', reroute
+      ? `RE-ROUTE: referral sent to ${h.name} – waiting for acceptance${c.transport ? ' (the ambulance keeps coming)' : ''}`
+      : `Referral request sent to ${h.name} – waiting for acceptance`,
+    reroute ? `Finding the next hospital: asked ${h.name} to accept` : undefined);
 
     if (!consoleOnline) {
       // No staff logged in at this hospital → simulate the ER desk so the demo
@@ -298,17 +319,133 @@ export function createStore({
       c.acceptedBy = who;
       c.acceptedAt = req.respondedAt;
       const beds = h.status.beds[c.bedType];
-      if (beds && beds.free > 0) beds.free -= 1; // reserve the bed
+      c.bedReserved = Boolean(beds && beds.free > 0);
+      if (c.bedReserved) beds.free -= 1; // reserve the bed
       c.bay = bay || `${c.bedType === 'icu' ? 'Resus' : c.bedType === 'labour' ? 'Labour room' : 'ER'}-${String(1 + Math.floor(Math.random() * 8)).padStart(2, '0')}`;
       const by = who ? ` by ${who.roleLabel}${who.role !== 'simulated' ? ` (${who.name})` : ''}` : '';
-      log(c, 'accepted', `${h.name} ACCEPTED the referral${by} – receiving bay ${c.bay}${note ? ` · ${note}` : ''}`,
+      const rerouted = c.reroute?.active;
+      if (rerouted && c.transport) c.status = 'enroute'; // the ambulance / car is already on its way
+      log(c, 'accepted', `${h.name} ACCEPTED the ${rerouted ? 're-routed ' : ''}referral${by} – receiving bay ${c.bay}${note ? ` · ${note}` : ''}`,
         `${h.name} accepted – receiving bay ${c.bay}`);
       publish('hospitals', 'status', statusView(h));
+      if (rerouted) finishReroute(c, h);
     } else {
       c.status = 'declined';
       log(c, 'declined', `${h.name} declined: ${reason || 'unable to admit'}`);
     }
     return c;
+  }
+
+  // ---------------------------------------------------------------- re-route (hospital can no longer receive)
+  /**
+   * The accepting hospital can no longer receive the patient (e.g. the reserved ICU
+   * bed went to a critical walk-in). Releases the bed and marks the case for
+   * re-routing; the API then asks the next capable hospital (server-side, so it
+   * works even if the family's phone is offline). The ambulance keeps coming.
+   */
+  function releaseCase(caseId, hospitalId, { reason = '', actor = null } = {}) {
+    const c = cases.get(caseId);
+    const h = getHospital(hospitalId);
+    if (!c || !h) throw Object.assign(new Error('case or hospital not found'), { status: 404 });
+    if (c.hospitalId !== hospitalId || !['accepted', 'enroute'].includes(c.status) || c.reroute?.active) {
+      throw Object.assign(new Error('only an accepted patient who has not arrived can be re-routed'), { status: 409 });
+    }
+    const why = String(reason || 'Bed no longer available').slice(0, 120);
+    const who = actor ? { staffId: actor.staffId, name: actor.name, role: actor.role, roleLabel: actor.roleLabel || roleLabel(actor.role) } : null;
+    if (c.bedReserved) {
+      const beds = h.status.beds[c.bedType];
+      if (beds) beds.free = Math.min(beds.total, beds.free + 1);
+      c.bedReserved = false;
+      publish('hospitals', 'status', statusView(h));
+    }
+    const req = [...c.requests].reverse().find((r) => r.hospitalId === hospitalId && r.outcome === 'accepted');
+    if (req) Object.assign(req, { outcome: 'released', releasedAt: now(), releasedBy: who, releaseReason: why });
+    if (actor && actor.role !== 'simulated') audit({ ...actor, hospitalId, action: 'referral.released', result: `${c.id} – ${why}` });
+    const tried = [...new Set(c.requests.map((r) => r.hospitalId))];
+    c.reroute = { active: true, fromHospitalId: hospitalId, fromName: h.name, reason: why, prevStatus: c.status, startedAt: now(), tried };
+    c.reroutes.push({ fromHospitalId: hospitalId, fromName: h.name, reason: why, at: now(), by: who });
+    c.status = 'rerouting';
+    c.acceptedBy = null;
+    c.bay = null;
+    log(c, 'released', `${h.name} can no longer receive the patient (${why})${who ? ` – ${who.roleLabel}` : ''}. Bed released; Medreach is re-routing to the next capable hospital${c.transport ? ' – the ambulance keeps coming' : ''}`,
+      `${h.name} can no longer receive the patient (${why}). Medreach is finding the next hospital${c.transport ? ' – the ambulance keeps coming' : ''}`);
+    return c;
+  }
+
+  // A new hospital accepted the re-routed patient: point the vehicle there.
+  function finishReroute(c, h) {
+    const r = c.reroute;
+    r.active = false;
+    r.toHospitalId = h.id;
+    const entry = c.reroutes.at(-1);
+    if (entry) Object.assign(entry, { toHospitalId: h.id, toName: h.name, doneAt: now() });
+    if (!c.transport) {
+      c.status = 'accepted';
+      log(c, 'rerouted', `Re-routed from ${r.fromName} to ${h.name} – choose how to travel`, `Re-routed to ${h.name}, which has accepted`);
+      return;
+    }
+    c.status = 'enroute';
+    redirectTransport(c, h);
+  }
+
+  /** No capable hospital accepted: go to the nearest open emergency department for stabilisation. */
+  function stabiliseAt(caseId, hospitalId) {
+    const c = cases.get(caseId);
+    const h = getHospital(hospitalId);
+    if (!c || !h || !c.reroute?.active) return c || null;
+    c.hospitalId = h.id;
+    c.requests.push({ hospitalId: h.id, at: now(), outcome: 'stabilisation' });
+    c.stabilisation = true;
+    c.bay = 'Emergency (stabilisation)';
+    c.reroute.active = false;
+    c.reroute.toHospitalId = h.id;
+    const entry = c.reroutes.at(-1);
+    if (entry) Object.assign(entry, { toHospitalId: h.id, toName: h.name, doneAt: now(), stabilisation: true });
+    if (c.transport) { c.status = 'enroute'; redirectTransport(c, h, true); } else c.status = 'accepted';
+    log(c, 'stabilisation', `No capable hospital could accept in time – going to the nearest open emergency department, ${h.name}, for stabilisation (emergency care cannot be refused). Call 108 if the condition worsens.`,
+      `Going to ${h.name} emergency department for stabilisation – call 108 if the condition worsens`);
+    publish(`hospital:${h.id}`, 'request', hospitalView(c));
+    return c;
+  }
+
+  /** Nothing at all could be found: tell the family to call 108 (the vehicle keeps its course). */
+  function rerouteFailed(caseId) {
+    const c = cases.get(caseId);
+    if (!c?.reroute?.active) return c || null;
+    c.reroute.failed = true;
+    log(c, 'reroute_failed', 'No other hospital could be reached – CALL 108 now; the ambulance crew will take the patient to the nearest emergency department',
+      'No other hospital could be reached – please call 108 now');
+    return c;
+  }
+
+  function redirectTransport(c, h, stabilisation = false) {
+    const t = c.transport;
+    const hour = new Date().getHours();
+    const svc = t.incident?.service || '108';
+    if (t.mode === 'ambulance' && !t.simulated) {
+      // Real / practice control room: tell it the new destination over the signed contract.
+      const say = (ok, extra = '') => log(c, ok ? 'dispatch_redirected' : 'dispatch_redirect_failed', ok
+        ? `${svc} control room informed: new destination ${h.name}${extra}`
+        : `Could not update the ${svc} control room${extra} – tell the crew by phone: take the patient to ${h.name}`,
+      ok ? `Ambulance redirected to ${h.name}` : `Ambulance crew is being told to go to ${h.name}`);
+      if (!ems?.redirect) { say(false, ' (no redirect channel)'); return; }
+      Promise.resolve()
+        .then(() => ems.redirect({ c, h, ref: t.incident.ref, incidentId: t.incident.id, reason: c.reroutes.at(-1)?.reason }))
+        .then(() => say(true), (err) => say(false, ` (${String(err?.message || err).slice(0, 60)})`));
+      return;
+    }
+    const going = t.phase === 'to_hospital' || t.mode === 'own';
+    const from = going ? { ...(t.position || c.location) } : { ...c.location };
+    t.legs.toHospital = leg(from, h);
+    t.etaToHospitalMin = Math.max(1, predictTravelMin(roadKm(from, h), { hour, mode: t.mode === 'ambulance' ? 'ambulance' : 'private' }).minutes);
+    if (going) t.progress = 0;
+    const toPatientLeft = t.phase === 'to_patient' ? Math.round(t.etaToPatientMin * (1 - t.progress)) : 0;
+    t.etaMin = going ? t.etaToHospitalMin : toPatientLeft + t.etaToHospitalMin + 2;
+    loadRoad(t, 'toHospital', from, h);
+    const what = t.mode === 'ambulance' ? `Ambulance ${t.ambulance?.id || ''}`.trim() : 'Your vehicle';
+    log(c, 'rerouted', `${what} redirected to ${h.name}${stabilisation ? ' (stabilisation)' : ''} – about ${t.etaMin} min`,
+      `${what} redirected to ${h.name} – about ${t.etaMin} min`);
+    publishMove(c);
   }
 
   // ---------------------------------------------------------------- transport (SIMULATED)
@@ -389,7 +526,7 @@ export function createStore({
       `${service} ambulance ${amb.id} assigned (incident ${incident.id}) – ~${toPatient} min away`);
     loadRoad(t, 'toPatient', from, c.location);
     loadRoad(t, 'toHospital', c.location, h);
-    simulateAmbulance(c, amb, h);
+    simulateAmbulance(c, amb);
     return c;
   }
 
@@ -455,18 +592,23 @@ export function createStore({
     return c;
   }
 
-  function simulateAmbulance(c, amb, h) {
+  // Keeps moving while en route, and also while a re-route is being arranged.
+  const moving = (c) => c.status === 'enroute' || Boolean(c.reroute?.active);
+
+  function simulateAmbulance(c, amb) {
     const t = c.transport;
     let atPatientTicks = 0;
     const tick = () => {
-      if (c.status !== 'enroute' || t.mode !== 'ambulance') return;
+      if (!moving(c) || c.transport !== t || t.mode !== 'ambulance') return;
       if (t.phase === 'to_patient') {
         t.progress = Math.min(1, t.progress + demoSpeed / (t.etaToPatientMin * 60));
         t.position = at(t.legs.toPatient, t.progress);
         t.etaMin = Math.round(t.etaToPatientMin * (1 - t.progress) + t.etaToHospitalMin + 2);
         if (t.progress >= 1) { t.phase = 'at_patient'; t.progress = 0; t.position = { ...c.location }; log(c, 'at_patient', `Ambulance ${amb.id} reached the patient – paramedics stabilising`); }
       } else if (t.phase === 'at_patient') {
-        if (++atPatientTicks >= 3) { t.phase = 'to_hospital'; log(c, 'to_hospital', `Patient on board – heading to ${h.name}`); }
+        if (++atPatientTicks >= 3 && !c.reroute?.active) { t.phase = 'to_hospital'; log(c, 'to_hospital', `Patient on board – heading to ${getHospital(c.hospitalId)?.name}`); }
+      } else if (t.phase === 'to_hospital' && c.reroute?.active) {
+        // Hold course until the next hospital accepts (seconds in practice).
       } else if (t.phase === 'to_hospital') {
         t.progress = Math.min(1, t.progress + demoSpeed / (t.etaToHospitalMin * 60));
         t.position = at(t.legs.toHospital, t.progress);
@@ -494,7 +636,8 @@ export function createStore({
     loadRoad(t, 'toHospital', c.location, h);
     if (!simulateOwnVehicle) return c;
     const tick = () => {
-      if (c.status !== 'enroute' || t.mode !== 'own' || !t.simulated) return;
+      if (!moving(c) || c.transport !== t || t.mode !== 'own' || !t.simulated) return;
+      if (c.reroute?.active) { later(tick, 1000); return; } // hold until the next hospital accepts
       t.progress = Math.min(1, t.progress + demoSpeed / (t.etaToHospitalMin * 60));
       t.position = at(t.legs.toHospital, t.progress);
       t.etaMin = Math.max(0, Math.round(t.etaToHospitalMin * (1 - t.progress)));
@@ -695,6 +838,7 @@ export function createStore({
     hospitals, ambulances, cases,
     subscribe, publish, listeners,
     createCase, getCase, checkCaseToken, checkTrackToken, requestAdmission, respond, startTransport, updatePosition, arrive, purge, emsUpdate, note,
+    releaseCase, stabiliseAt, rerouteFailed,
     getHospital, updateHospitalStatus, startStatusSimulation, stop,
     appointUpdateOfficer, updateOfficer, isUpdateOfficer, checkUpdateCycles,
     view, hospitalView, trackView, audit, auditFor, verifyAudit,
