@@ -8,6 +8,9 @@ const KEY = 'medreach.practiceCad.key';
 let key = (() => { try { return sessionStorage.getItem(KEY) || ''; } catch { return ''; } })();
 let map = null;
 let fitted = false;
+let mode = 'auto';
+const seen = new Set();
+let firstLoad = true;
 
 function toast(msg) {
   const t = $('#toast');
@@ -35,7 +38,20 @@ function renderKeyState(msg, tone) {
     ? '✅ Key accepted – actions unlocked for this tab.'
     : 'Without the key you can watch; incidents are assigned automatically after a few seconds.');
   $('#lockBtn').classList.toggle('hidden', !key);
+  renderMode();
 }
+
+function renderMode() {
+  for (const r of document.querySelectorAll('input[name="mode"]')) { r.checked = r.value === mode; r.disabled = !key; }
+  $('#modeHint').textContent = key
+    ? (mode === 'manual' ? 'Manual: new incidents wait for you. Report an emergency on /report, then click “Assign nearest unit now” on its card below.' : 'Automatic: the nearest unit is sent 4 seconds after an incident arrives.')
+    : 'Unlock with the key to change this.';
+}
+
+const countdown = (iso) => {
+  const s = Math.max(0, Math.round((Date.parse(iso) - Date.now()) / 1000));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+};
 
 const WHERE = 'Copy the <b>value</b> of <code>SEHAT_EMS_SECRET</code> from Render → your Medreach-2 service → <b>Environment</b> (click the eye icon, then copy) and paste only that value.';
 function keyProblem(r) {
@@ -68,7 +84,8 @@ function incidentCard(r) {
       ${r.closed ? '' : `<div class="row pc-actions">
         ${r.unit ? '' : `<button class="b sm primary" data-act="assign" data-id="${esc(r.id)}" ${key ? '' : 'disabled'}>Assign nearest unit now</button>`}
         <button class="b sm danger" data-act="cancel" data-id="${esc(r.id)}" ${key ? '' : 'disabled'}>Cancel incident</button>
-      </div>`}
+        ${!r.unit && r.autoAssignAt ? `<span class="small muted">auto-assign in ${countdown(r.autoAssignAt)}</span>` : ''}
+      </div>${key ? '' : '<p class="small muted">Unlock with the dispatcher key (top right) to use these buttons.</p>'}`}
     </article>`;
 }
 
@@ -129,6 +146,13 @@ async function load() {
   if (res.status === 401) { live(false, 'Key needed'); $('#incidents').innerHTML = '<p class="muted">Enter the dispatcher key to view incidents.</p>'; return; }
   const data = await res.json();
   live(true, 'Live');
+  if (data.settings?.mode && data.settings.mode !== mode) { mode = data.settings.mode; renderMode(); }
+  for (const r of data.incidents) {
+    if (seen.has(r.id)) continue;
+    seen.add(r.id);
+    if (!firstLoad && !r.closed) toast(`New incident ${r.id} – its card is below the map ↓`);
+  }
+  firstLoad = false;
   const free = data.fleet.filter((a) => a.available).length;
   const open = data.incidents.filter((r) => !r.closed).length;
   $('#counts').textContent = `${open} active incident${open === 1 ? '' : 's'} · ${free}/${data.fleet.length} units free`;
@@ -168,6 +192,16 @@ $('#keyForm').addEventListener('submit', async (e) => {
     renderKeyState('Could not reach the server – check your connection.', 'bad');
   } finally { btn.disabled = false; }
 });
+
+document.querySelectorAll('input[name="mode"]').forEach((el) => el.addEventListener('change', async () => {
+  const want = el.value;
+  try {
+    const res = await fetch('/api/practice-cad/settings', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Dispatcher-Key': key }, body: JSON.stringify({ mode: want }) });
+    if (res.ok) { mode = want; toast(want === 'manual' ? 'Manual mode – incidents wait for you' : 'Automatic mode'); }
+    else toast(res.status === 401 ? 'Wrong dispatcher key' : `Failed: HTTP ${res.status}`);
+  } catch { toast('Could not reach the server'); }
+  renderMode();
+}));
 
 $('#showKey').addEventListener('change', (e) => { $('#key').type = e.target.checked ? 'text' : 'password'; });
 $('#lockBtn').addEventListener('click', () => {

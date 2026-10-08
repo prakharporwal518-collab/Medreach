@@ -143,3 +143,29 @@ test('dispatcher key: pasted with name, quotes or spaces still works; a wrong ke
     assert.equal(r.status, 404);
   } finally { close(); }
 });
+
+test('manual mode: incident waits for the dispatcher, who assigns it; mode change needs the key', async () => {
+  const { store, base, close } = await boot({ SEHAT_PRACTICE_CAD_ASSIGN_MS: '50', SEHAT_PRACTICE_CAD_MANUAL_MS: '60000' });
+  try {
+    const setMode = (mode, key) => fetch(`${base}/api/practice-cad/settings`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...(key ? { 'X-Dispatcher-Key': key } : {}) }, body: JSON.stringify({ mode }) });
+    assert.equal((await setMode('manual')).status, 401);
+    assert.equal((await setMode('sideways', SECRET)).status, 400);
+    assert.equal((await setMode('manual', SECRET)).status, 200);
+    const board = async () => (await fetch(`${base}/api/practice-cad/incidents`)).json();
+    assert.equal((await board()).settings.mode, 'manual');
+
+    const c = acceptedCase(store);
+    store.startTransport(c.id, { mode: 'ambulance' });
+    assert.ok(await until(() => c.transport.incident.id));
+    await wait(400); // far longer than the 50 ms auto-assign
+    let rec = (await board()).incidents[0];
+    assert.equal(rec.unit, null, 'still waiting for the dispatcher');
+    assert.ok(Date.parse(rec.autoAssignAt) > Date.now(), 'fallback time shown');
+
+    const r = await fetch(`${base}/api/practice-cad/incidents/${rec.id}/assign`, { method: 'POST', headers: { 'X-Dispatcher-Key': SECRET } });
+    assert.equal(r.status, 200);
+    rec = (await board()).incidents[0];
+    assert.ok(rec.unit && rec.assignedBy === 'dispatcher' && rec.autoAssignAt === null);
+    assert.ok(await until(() => c.transport.ambulance?.id === rec.unit.id), 'Medreach told about the unit');
+  } finally { close(); }
+});

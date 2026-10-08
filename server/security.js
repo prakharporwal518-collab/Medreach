@@ -66,7 +66,7 @@ export const DEFAULT_LIMITS = [
   { name: 'cases', match: post(/^\/api\/cases$/), max: 30, windowMs: 10 * 60 * 1000 },
   { name: 'sms-demo', match: post(/^\/api\/sms\/demo$/), max: 10, windowMs: 10 * 60 * 1000 },
   { name: 'integrations', match: post(/^\/api\/(ems\/updates|sms\/inbound)$/), max: 600, windowMs: 60 * 1000 },
-  { name: 'dispatcher-key', match: post(/^\/api\/practice-cad\/(key-check|incidents\/[^/]+\/(assign|cancel))$/), max: 30, windowMs: 10 * 60 * 1000 },
+  { name: 'dispatcher-key', match: post(/^\/api\/practice-cad\/(key-check|settings|incidents\/[^/]+\/(assign|cancel))$/), max: 30, windowMs: 10 * 60 * 1000 },
   { name: 'aadhaar-otp', match: post(/^\/api\/citizen\/otp$/), max: 10, windowMs: 10 * 60 * 1000 },
   { name: 'aadhaar-verify', match: post(/^\/api\/citizen\/verify$/), max: 30, windowMs: 10 * 60 * 1000 },
   { name: 'ai', match: post(/^\/api\/(triage|vision)$/), max: 60, windowMs: 10 * 60 * 1000 },

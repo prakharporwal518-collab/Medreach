@@ -36,3 +36,11 @@
 #keyState.pc-ok { color: #047857; }
 #keyState.pc-bad { color: #b91c1c; background: #fef2f2; border: 1px solid #fecaca; border-radius: 8px; padding: .5rem .6rem; }
 #keyState code { font-size: .85em; }
+
+.pc-mode { border: 1px solid var(--line, #e2e8f0); border-radius: 10px; padding: .6rem .75rem; margin: .8rem 0 .6rem; }
+.pc-mode legend { font-weight: 700; padding: 0 .3rem; }
+.pc-mode label { display: flex; gap: .5rem; align-items: flex-start; margin: .3rem 0; cursor: pointer; line-height: 1.35; }
+.pc-mode input { margin-top: .2rem; }
+.pc-mode p { margin: .3rem 0 0; }
+.pc-jump { display: block; padding: .5rem .65rem; border-radius: 8px; background: #eff6ff; color: #1d4ed8; text-decoration: none; font-size: .9rem; }
+.pc-jump:hover { background: #dbeafe; }
