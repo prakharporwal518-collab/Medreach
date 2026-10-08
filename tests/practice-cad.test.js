@@ -96,3 +96,29 @@ test('practice control room is off unless enabled', async () => {
     assert.equal(r.status, 404);
   } finally { store.stop(); server.close(); }
 });
+
+test('settings with stray spaces, quotes or capitals still work; status says what is missing', async () => {
+  const { cleanEnv, isOn, cleanUrl } = await import('../server/env.js');
+  assert.ok(isOn(' ON ') && isOn('"on"') && isOn('true') && !isOn('off') && !isOn(''));
+  assert.equal(cleanUrl(' medreach.example/api/practice-cad/incidents '), 'https://medreach.example/api/practice-cad/incidents');
+  const env = cleanEnv({ SEHAT_PRACTICE_CAD: ' "On" ', SEHAT_EMS_SECRET: " 'abc' ", SEHAT_EMS_URL: 'x.example/api/practice-cad/incidents', OTHER: ' keep ' });
+  assert.deepEqual([env.SEHAT_PRACTICE_CAD, env.SEHAT_EMS_SECRET, env.SEHAT_EMS_URL, env.OTHER], ['On', 'abc', 'https://x.example/api/practice-cad/incidents', ' keep ']);
+
+  const store = createStore({ simulatedResponseMs: 50, reminderIntervalMs: 0 });
+  const app = createApp(store, { dataMode: 'demo', env: { SEHAT_PRACTICE_CAD: ' ON ', SEHAT_EMS_SECRET: '' } });
+  const server = app.listen(0);
+  await new Promise((r) => server.once('listening', r));
+  const base = `http://127.0.0.1:${server.address().port}`;
+  try {
+    const st = await (await fetch(`${base}/api/practice-cad/status`)).json();
+    assert.deepEqual(st, { on: false, checks: { SEHAT_PRACTICE_CAD: true, SEHAT_EMS_SECRET: false, SEHAT_EMS_URL: false } });
+    assert.equal((await fetch(`${base}/api/practice-cad/incidents`)).status, 404);
+  } finally { store.stop(); server.close(); }
+
+  const { store: s2, base: b2, close } = await boot({ SEHAT_PRACTICE_CAD: ' On ' });
+  try {
+    assert.equal((await (await fetch(`${b2}/api/practice-cad/status`)).json()).on, true);
+    assert.equal((await fetch(`${b2}/api/practice-cad/incidents`)).status, 200);
+  } finally { close(); }
+  void s2;
+});
