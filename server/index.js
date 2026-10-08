@@ -15,6 +15,7 @@ import { createCitizenAuth } from './citizen-auth.js';
 import { createHash } from 'node:crypto';
 import { createEmsClient, emsEnabled, verifySignature } from './ems.js';
 import { createSmsSender, verifySmsRequest } from './sms.js';
+import { createPracticeCad } from './practice-cad.js';
 import { aiEnabled, aiProvider, aiTriage, aiVision, aiHandover } from './llm.js';
 import { createVault } from './vault.js';
 import { roadRoute, routingEnabled } from './routing.js';
@@ -48,10 +49,12 @@ export function createApp(store = productionStore(), {
   smsSender = createSmsSender({ url: env.SEHAT_SMS_SEND_URL, token: env.SEHAT_SMS_SEND_TOKEN }),
 } = {}) {
   const auth = createAuth({ demoMode: dataMode === 'demo', audit: store.audit });
+  const practiceOn = env.SEHAT_PRACTICE_CAD === 'on' && Boolean(env.SEHAT_EMS_SECRET);
   const api = createApi({
     store, auth, dataMode, citizenAuth, smsSender,
     integrations: {
       emsLive: emsEnabled(env),
+      emsPractice: practiceOn && String(env.SEHAT_EMS_URL || '').includes('/api/practice-cad/'),
       smsNumber: env.SEHAT_SMS_NUMBER || null,
       publicUrl: env.SEHAT_PUBLIC_URL || env.RENDER_EXTERNAL_URL || '',
     },
@@ -63,6 +66,21 @@ export function createApp(store = productionStore(), {
   app.set('trust proxy', 1); // real client IP behind Render's proxy, for rate limits
   app.use(securityHeaders);
   app.use(rateLimiter(limits));
+  // Practice 108 control room (stands in for the real one; same signed contract both ways).
+  if (practiceOn) {
+    const practice = createPracticeCad({
+      secret: env.SEHAT_EMS_SECRET,
+      callbackUrl: () => env.SEHAT_EMS_CALLBACK_URL || `http://127.0.0.1:${env.PORT || 3000}/api/ems/updates`,
+      routeFn: routingEnabled(env) ? roadRoute : null,
+      demoSpeed: Number(env.SEHAT_DEMO_SPEED ?? 15),
+      autoAssignMs: Number(env.SEHAT_PRACTICE_CAD_ASSIGN_MS ?? 4000),
+      tickMs: Number(env.SEHAT_PRACTICE_CAD_TICK_MS ?? 2000),
+      dataMode,
+    });
+    app.locals.practiceCad = practice;
+    app.use('/api/practice-cad', practice.router);
+  }
+
   // Integrations post signed JSON (108 control room, SMS gateway): keep the raw bytes to check the signature.
   const signedJson = express.json({ limit: '32kb', verify: (req, _res, buf) => { req.rawBody = buf.toString('utf8'); } });
   const sig = (req) => ({ timestamp: req.get('x-medreach-timestamp'), signature: req.get('x-medreach-signature'), rawBody: req.rawBody });
@@ -149,7 +167,8 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     console.log(`   Citizen app:      http://localhost:${port}/`);
     console.log(`   Hospital console: http://localhost:${port}/hospital`);
     console.log(`   Data mode:        ${DATA_MODE === 'demo' ? 'DEMO – simulated hospital data, OTP shown on screen' : 'LIVE – staff-verified data only'}`);
-    console.log(`   Ambulance (108):  ${emsEnabled() ? `control room at ${new URL(process.env.SEHAT_EMS_URL).host}` : 'SIMULATED control room (set SEHAT_EMS_URL + SEHAT_EMS_SECRET)'}`);
+    const practice = process.env.SEHAT_PRACTICE_CAD === 'on' && String(process.env.SEHAT_EMS_URL || '').includes('/api/practice-cad/');
+    console.log(`   Ambulance (108):  ${emsEnabled() ? `${practice ? 'PRACTICE control room (signed integration, not the real 108) at' : 'control room at'} ${new URL(process.env.SEHAT_EMS_URL).host}` : 'SIMULATED control room (set SEHAT_EMS_URL + SEHAT_EMS_SECRET)'}`);
     console.log(`   SMS channel:      ${process.env.SEHAT_SMS_SECRET ? `inbound on, outbound ${process.env.SEHAT_SMS_SEND_URL ? 'on' : 'simulated'}${process.env.SEHAT_SMS_NUMBER ? `, number ${process.env.SEHAT_SMS_NUMBER}` : ''}` : 'off (demo simulator only)'}`);
     console.log(`   Citizen sign-in:  ${DATA_MODE === 'demo' ? 'Aadhaar + OTP (simulated UIDAI, OTP shown on screen)' : 'Aadhaar + OTP needs a licensed AUA/KUA provider – not connected'}`);
     console.log(`   Generative AI:    ${aiEnabled() ? `${aiProvider()} enabled` : 'off (set GEMINI_API_KEY or ANTHROPIC_API_KEY) – using offline engines'}`);

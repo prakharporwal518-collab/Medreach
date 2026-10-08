@@ -11,6 +11,7 @@
 // Integration contract (JSON over HTTPS, both directions HMAC-signed):
 //   Medreach → control room   POST SEHAT_EMS_URL                → { incidentId, unit?, etaMin? }
 //   control room → Medreach   POST /api/ems/updates             → status of the incident
+//                             { incidentRef, incidentId?, status, unit?, position?, etaMin? (to hospital), etaToPatientMin? }
 //   Headers: X-Medreach-Timestamp (unix ms), X-Medreach-Signature: sha256=HMAC(secret, `${ts}.${rawBody}`)
 //
 // Without SEHAT_EMS_URL the store uses a SIMULATED control room (demo fleet),

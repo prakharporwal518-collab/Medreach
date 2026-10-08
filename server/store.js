@@ -21,7 +21,7 @@ import { HOSPITALS, AMBULANCES, SEED_VERIFIED_MIN_AGO } from './data/hospitals.j
 import { roadKm, predictTravelMin } from '../shared/predict.js';
 import { roleLabel } from '../shared/roles.js';
 import { pointAlong, downsample, remainingPath, straightLine } from '../shared/geo.js';
-import { serviceFor, priorityFor, EMS_PHASES } from '../shared/ems.js';
+import { serviceFor, priorityFor, EMS_PHASES, pickUnit } from '../shared/ems.js';
 import { updateCycle } from '../shared/freshness.js';
 
 export const BLOOD_GROUPS = ['A+', 'A-', 'B+', 'B-', 'O+', 'O-', 'AB+', 'AB-'];
@@ -312,16 +312,7 @@ export function createStore({
   }
 
   // ---------------------------------------------------------------- transport (SIMULATED)
-  // Nearest suitable unit: the requested type is preferred, but not at any distance –
-  // a basic ambulance 3 km away beats an advanced one 40 km away (each step down
-  // the preference list counts as 8 extra km).
-  function pickAmbulance(type, from) {
-    const order = type === 'ALS' ? ['ALS', 'BLS'] : type === 'JANANI' ? ['JANANI', 'BLS', 'ALS'] : ['BLS', 'ALS', 'JANANI'];
-    const pool = ambulances.filter((a) => a.available && order.includes(a.type))
-      .map((a) => ({ a, km: roadKm(from, a), score: roadKm(from, a) + order.indexOf(a.type) * 8 }))
-      .sort((x, y) => x.score - y.score);
-    return pool[0] || null;
-  }
+  const pickAmbulance = (type, from) => pickUnit(ambulances, type, from);
 
   // What goes on the wire for a moving vehicle: no full route geometry every
   // second, just the remaining part of the current leg (and the next leg).
@@ -430,7 +421,7 @@ export function createStore({
 
   const inIndia = (p) => Number.isFinite(p?.lat) && Number.isFinite(p?.lng) && p.lat > 5 && p.lat < 38 && p.lng > 67 && p.lng < 99;
   /** Status from the control room (signed webhook). Returns the case, or null if unknown. */
-  function emsUpdate({ incidentRef, incidentId, status, unit, position, etaMin } = {}) {
+  function emsUpdate({ incidentRef, incidentId, status, unit, position, etaMin, etaToPatientMin } = {}) {
     const c = [...cases.values()].find((x) => x.transport?.incident && (x.transport.incident.ref === incidentRef || (incidentId && x.transport.incident.id === String(incidentId))));
     if (!c || c.status === 'arrived') return c || null;
     const t = c.transport;
@@ -445,6 +436,7 @@ export function createStore({
       t.from ||= { ...t.position };
     }
     if (Number.isFinite(etaMin)) t.etaMin = Math.max(0, Math.round(etaMin));
+    t.etaToPatientMin = Number.isFinite(etaToPatientMin) ? Math.max(0, Math.round(etaToPatientMin)) : null;
     if (status === 'arrived' || status === 'handed_over') { t.incident.status = 'completed'; arrive(c.id); return c; }
     if (status === 'cancelled') {
       t.incident.status = 'cancelled';

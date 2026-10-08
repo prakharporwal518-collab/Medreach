@@ -123,6 +123,7 @@ For ASHA workers and village volunteers: anyone can report for someone else with
 - If the control room can't be reached, the case says so immediately and the family is told to **call 108 now** (never a silent failure).
 - **Integration contract** (both directions HMAC-SHA256 signed, 5-minute replay window): Medreach `POST`s the incident JSON to `SEHAT_EMS_URL` and expects `{ incidentId, unit?, etaMin? }`; the control room `POST`s status updates to `/api/ems/updates`. See `server/ems.js`.
 - **In this prototype** no real 108 system is connected (that needs an agreement with the state's 108 operator / NHM MP), so a **simulated control room** assigns the nearest suitable unit from a demo fleet and is labelled *simulated* everywhere.
+- **Practice 108 control room** (`/practice-cad`, `server/practice-cad.js`): to show the *real* signed integration end to end, turn on a stand-in control room. Medreach then sends each incident over HTTPS to `/api/practice-cad/incidents`; the practice control room verifies the signature, auto-assigns the nearest suitable unit from its own fleet, drives it and posts signed status updates back to `/api/ems/updates`. Its dispatcher console shows a live map, the fleet and every incident; with the dispatcher key (= `SEHAT_EMS_SECRET`) a dispatcher can assign or cancel. It is labelled *Practice 108 – not the real 108* everywhere. Settings: `SEHAT_PRACTICE_CAD=on`, `SEHAT_EMS_URL=<your site>/api/practice-cad/incidents`, `SEHAT_EMS_SECRET=<long random secret>`.
 
 ### ⏰ 108-minute hospital update cycle
 - Every hospital updates its **full availability every 108 minutes**: ER status and queue, ER doctors on shift, specialists on duty, ICU / emergency / labour beds, equipment working, ventilators, and **blood stock by group** (A+ … AB-).
@@ -334,6 +335,7 @@ shared/ (runs on server AND phone): triage · matching · predict · freshness �
 | `SEHAT_ROUTING` | `on` | `off` = straight-line routes |
 | `SEHAT_SIMULATE_VEHICLE` | `1` | Simulate own-vehicle drive until GPS shows movement |
 | `SEHAT_EMS_URL` · `SEHAT_EMS_SECRET` | – | Real 108/102 control room endpoint and shared signing secret (simulated without them) |
+| `SEHAT_PRACTICE_CAD` | off | `on` = run the practice 108 control room on this server (point `SEHAT_EMS_URL` at `/api/practice-cad/incidents`) |
 | `SEHAT_SMS_NUMBER` | – | Number citizens SMS when offline (shows the *Send by SMS* button) |
 | `SEHAT_SMS_SECRET` | – | Authenticates the SMS gateway on `/api/sms/inbound` |
 | `SEHAT_SMS_SEND_URL` · `SEHAT_SMS_SEND_TOKEN` | – | Outbound SMS (replies, accepted, ambulance); simulated without them |
