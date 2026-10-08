@@ -197,6 +197,11 @@ textarea.describe {
 .kpi { background: var(--surface-2); border-radius: 10px; padding: .4rem .5rem; text-align: center; }
 .kpi b { display: block; font-size: 1.1rem; }
 .kpi span { font-size: .7rem; color: var(--muted); }
+.kpi.match b { white-space: nowrap; text-align: center; }
+.kpi.match b small { display: inline; font-size: .65rem; font-weight: 600; color: var(--muted); }
+.kpi.match.hi { background: rgba(22, 163, 74, .12); } .kpi.match.hi b { color: #16a34a; }
+.kpi.match.mid { background: rgba(217, 119, 6, .12); } .kpi.match.mid b { color: #d97706; }
+.kpi.match.lo { background: rgba(225, 29, 72, .1); } .kpi.match.lo b { color: #e11d48; }
 .reasons { margin: .3rem 0 0; padding-left: 1.1rem; font-size: .85rem; color: var(--ink-2); }
 .score { font-weight: 800; font-size: 1.2rem; color: var(--brand); text-align: right; }
 .score small { display: block; font-size: .65rem; color: var(--muted); font-weight: 600; }

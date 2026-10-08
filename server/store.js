@@ -16,6 +16,7 @@
 // contact are kept sealed by a `vault` (AES-256-GCM on the server) and only
 // opened when an authorised view is built.
 
+import { sha256 } from '../shared/sha256.js';
 import { HOSPITALS, AMBULANCES, SEED_VERIFIED_MIN_AGO } from './data/hospitals.js';
 import { roadKm, predictTravelMin } from '../shared/predict.js';
 import { roleLabel } from '../shared/roles.js';
@@ -77,14 +78,31 @@ export function createStore({
   const now = () => new Date().toISOString();
 
   // ---------------------------------------------------------------- audit trail
+  // Tamper-evident: every entry stores the hash of the previous one, so editing,
+  // deleting or reordering any past entry breaks the chain (see verifyAudit).
+  let auditSeq = 0;
+  let auditAnchor = '0'.repeat(64); // hash before the oldest entry still kept
+  const entryHash = ({ hash, ...rest }) => sha256(JSON.stringify(rest));
   function audit(entry) {
-    const e = { at: now(), ...entry };
+    const prev = auditLog.length ? auditLog[auditLog.length - 1].hash : auditAnchor;
+    const e = { seq: ++auditSeq, at: now(), ...entry, prev };
+    e.hash = entryHash(e);
+    Object.freeze(e);
     auditLog.push(e);
-    if (auditLog.length > 5000) auditLog.shift();
+    if (auditLog.length > 5000) auditAnchor = auditLog.shift().hash;
     if (e.hospitalId) publish(`hospital:${e.hospitalId}`, 'audit', e);
     return e;
   }
   const auditFor = (hospitalId) => auditLog.filter((e) => hospitalId === '*' || e.hospitalId === hospitalId).slice(-200).reverse();
+  /** Re-check the whole chain. { ok, entries, brokenAt (seq) | null, head } */
+  function verifyAudit(log = auditLog, anchor = auditAnchor) {
+    let prev = anchor;
+    for (const e of log) {
+      if (e.prev !== prev || entryHash(e) !== e.hash) return { ok: false, entries: log.length, brokenAt: e.seq ?? null, head: null };
+      prev = e.hash;
+    }
+    return { ok: true, entries: log.length, brokenAt: null, head: prev };
+  }
 
   // ---------------------------------------------------------------- views (who sees what)
   // Citizen who created the case: everything except secrets & timers.
@@ -477,17 +495,17 @@ export function createStore({
       }
     }
     if (Array.isArray(patch.onDuty)) {
-      const next = patch.onDuty.filter((c) => h.capabilities.includes(c));
+      const next = [...new Set(patch.onDuty)].filter((c) => h.capabilities.includes(c));
       set('on duty', s.onDuty.join('+') || 'none', next.join('+') || 'none');
       s.onDuty = next;
     }
     if (Array.isArray(patch.equipmentDown)) {
-      const next = patch.equipmentDown.filter((c) => h.capabilities.includes(c));
+      const next = [...new Set(patch.equipmentDown)].filter((c) => h.capabilities.includes(c));
       set('equipment down', s.equipmentDown.join('+') || 'none', next.join('+') || 'none');
       s.equipmentDown = next;
     }
-    if (Number.isFinite(patch.erQueue)) { const n = Math.max(0, Math.round(patch.erQueue)); set('ER queue', s.erQueue, n); s.erQueue = n; }
-    if (Number.isFinite(patch.ventilatorsFree)) { const n = Math.max(0, Math.round(patch.ventilatorsFree)); set('ventilators free', s.ventilatorsFree, n); s.ventilatorsFree = n; }
+    if (Number.isFinite(patch.erQueue)) { const n = Math.max(0, Math.min(500, Math.round(patch.erQueue))); set('ER queue', s.erQueue, n); s.erQueue = n; }
+    if (Number.isFinite(patch.ventilatorsFree)) { const n = Math.max(0, Math.min(500, Math.round(patch.ventilatorsFree))); set('ventilators free', s.ventilatorsFree, n); s.ventilatorsFree = n; }
     s.verifiedAt = now();
     s.updatedAt = s.verifiedAt;
     s.source = 'dashboard';
@@ -527,6 +545,6 @@ export function createStore({
     subscribe, publish, listeners,
     createCase, getCase, checkCaseToken, checkTrackToken, requestAdmission, respond, startTransport, updatePosition, arrive, purge,
     getHospital, updateHospitalStatus, startStatusSimulation, stop,
-    view, hospitalView, trackView, audit, auditFor,
+    view, hospitalView, trackView, audit, auditFor, verifyAudit,
   };
 }

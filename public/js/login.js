@@ -1,14 +1,14 @@
 // Sign-in page for both portals.
-//   Citizen            → account on this device → /citizen
+//   Citizen            → Aadhaar + OTP (server-verified) → profile on this device → /citizen
 //   Hospital Staff     → Hospital ID + Staff ID + OTP (server) → /hospital
 //   Health Admin       → MP-STATE + Staff ID + OTP (server)    → /hospital (read-only oversight)
 import { hydrateIcons, esc } from './icons.js';
 import * as citizen from './citizen-store.js';
+import { aadhaarProblem, cleanAadhaar, formatAadhaar } from '/shared/aadhaar.js';
 
 const $ = (s) => document.querySelector(s);
 const params = new URLSearchParams(location.search);
 let role = ['staff', 'admin'].includes(params.get('role')) ? params.get('role') : 'citizen';
-let citizenMode = params.get('mode') === 'register' ? 'register' : 'signin';
 let config = { dataMode: 'demo' };
 let hospitals = [];
 
@@ -26,18 +26,11 @@ function render() {
   $('#roleCode').textContent = `ROLE: ${role === 'citizen' ? 'CITIZEN' : role === 'staff' ? 'HOSPITAL STAFF' : 'HEALTH ADMIN'}`;
   $('#citizenBox').classList.toggle('hidden', role !== 'citizen');
   $('#staffBox').classList.toggle('hidden', role === 'citizen');
-  const reg = citizenMode === 'register';
   if (role === 'citizen') {
-    $('#title').textContent = reg ? 'Create Citizen Account' : 'Citizen Sign in';
-    $('#lead').textContent = reg ? 'Register your profile for fast, private emergency help' : 'Welcome back – your data stays on this device';
-    $('#tabSignin').setAttribute('aria-selected', String(!reg));
-    $('#tabRegister').setAttribute('aria-selected', String(reg));
-    $('#signinForm').classList.toggle('hidden', reg);
-    $('#registerForm').classList.toggle('hidden', !reg);
-    $('#authFoot').innerHTML = reg
-      ? 'Already have an account? <a href="#" id="swap">Sign in</a>'
-      : 'New to Medreach? <a href="#" id="swap">Create an account</a>';
-    $('#swap').onclick = (e) => { e.preventDefault(); citizenMode = reg ? 'signin' : 'register'; render(); };
+    $('#title').textContent = 'Citizen Sign in / Register';
+    $('#lead').textContent = 'Verify with Aadhaar OTP – your health records stay on this device';
+    $('#authFoot').innerHTML = 'Hospital staff? <a href="/login?role=staff">Staff sign in</a> · Emergency? <a href="/report">Report without logging in</a>';
+    demoIds();
   } else {
     $('#title').textContent = role === 'staff' ? 'Hospital Staff Sign in' : 'Health Admin Sign in';
     $('#lead').textContent = role === 'staff' ? 'Authorised hospital staff only · every action is audit-logged' : 'Read-only oversight of all hospitals · audit-logged';
@@ -65,31 +58,111 @@ function showAlready() {
   }
 }
 
-// ---------------------------------------------------------------- citizen
-$('#tabSignin').onclick = () => { citizenMode = 'signin'; render(); };
-$('#tabRegister').onclick = () => { citizenMode = 'register'; render(); };
-for (const b of document.querySelectorAll('[data-toggle]')) {
-  b.onclick = () => { const i = $(`#${b.dataset.toggle}`); i.type = i.type === 'password' ? 'text' : 'password'; };
-}
+// ---------------------------------------------------------------- citizen: Aadhaar + OTP
+let txn = null;          // { txnId, maskedMobile, needsName } of the OTP that was sent
+let resendTimer = null;
+const nextUrl = () => (params.get('next')?.startsWith('/') && !params.get('next').startsWith('//') ? params.get('next') : null);
 
-$('#signinForm').onsubmit = async (e) => {
-  e.preventDefault();
-  $('#siError').textContent = '';
+// Show the number grouped like on the card while typing (2345 6789 0123).
+$('#aadhaar').addEventListener('input', (e) => {
+  const el = e.target;
+  const atEnd = el.selectionStart === el.value.length;
+  el.value = formatAadhaar(el.value);
+  if (atEnd) el.setSelectionRange(el.value.length, el.value.length);
+  $('#aaError').textContent = '';
+});
+
+async function demoIds() {
+  if (config.dataMode !== 'demo') return;
   try {
-    await citizen.signIn($('#siPhone').value, $('#siPass').value);
-    location.href = params.get('next')?.startsWith('/') && !params.get('next').startsWith('//') ? params.get('next') : '/citizen';
-  } catch (err) { $('#siError').textContent = err.message; }
+    const ids = await api('/api/citizen/demo-ids');
+    $('#demoIdList').innerHTML = ids.map((p) => `<button type="button" class="chip-t" data-aadhaar="${esc(p.aadhaar)}">${esc(p.name)} · ${esc(p.aadhaar)}</button>`).join('');
+    $('#demoIds').classList.toggle('hidden', !ids.length);
+  } catch { /* optional */ }
+}
+$('#demoIdList').onclick = (e) => {
+  const b = e.target.closest('[data-aadhaar]');
+  if (!b) return;
+  $('#aadhaar').value = b.dataset.aadhaar;
+  $('#aaError').textContent = '';
 };
 
-$('#registerForm').onsubmit = async (e) => {
-  e.preventDefault();
-  $('#rgError').textContent = '';
-  if ($('#rgPass').value !== $('#rgPass2').value) { $('#rgError').textContent = 'Passwords do not match'; return; }
-  if (!$('#rgAgree').checked) { $('#rgError').textContent = 'Please tick the privacy acknowledgement'; return; }
+function startResendCountdown(sec = 30) {
+  clearInterval(resendTimer);
+  let left = sec;
+  const link = $('#aaResend');
+  link.classList.add('disabled');
+  $('#aaResendIn').textContent = `(${left}s)`;
+  resendTimer = setInterval(() => {
+    left -= 1;
+    $('#aaResendIn').textContent = left > 0 ? `(${left}s)` : '';
+    if (left <= 0) { clearInterval(resendTimer); link.classList.remove('disabled'); }
+  }, 1000);
+}
+
+async function sendAadhaarOtp(e) {
+  e?.preventDefault();
+  $('#aaError').textContent = '';
+  const problem = aadhaarProblem($('#aadhaar').value);
+  if (problem) { $('#aaError').textContent = problem; $('#aadhaar').focus(); return; }
+  if (!$('#aaConsent').checked) { $('#aaError').textContent = 'Please tick the consent box to verify with Aadhaar'; return; }
+  const btn = $('#aaBtn');
+  btn.disabled = true;
   try {
-    await citizen.register({ name: $('#rgName').value, email: $('#rgEmail').value, phone: $('#rgPhone').value, password: $('#rgPass').value });
-    location.href = '/citizen#welcome';
-  } catch (err) { $('#rgError').textContent = err.message; }
+    txn = await api('/api/citizen/otp', { aadhaar: cleanAadhaar($('#aadhaar').value), consent: true });
+    $('#aadhaarForm').classList.add('hidden');
+    $('#aaOtpForm').classList.remove('hidden');
+    $('#aaSent').innerHTML = `OTP sent to the mobile linked with Aadhaar <b>${esc(txn.maskedAadhaar)}</b>: <b>${esc(txn.maskedMobile)}</b>. Valid for 5 minutes.`;
+    $('#aaDemo').classList.toggle('hidden', !txn.demoOtp);
+    if (txn.demoOtp) $('#aaDemo').innerHTML = `Demo only (simulated UIDAI, no SMS is sent): your OTP is <b>${esc(txn.demoOtp)}</b>`;
+    $('#aaNameField').classList.toggle('hidden', !txn.needsName);
+    $('#aaOtp').value = '';
+    $('#aaOtpError').textContent = '';
+    (txn.needsName ? $('#aaName') : $('#aaOtp')).focus();
+    startResendCountdown();
+  } catch (err) {
+    $('#aaError').textContent = err.message;
+    if (!$('#aaOtpForm').classList.contains('hidden')) $('#aaOtpError').textContent = err.message;
+  } finally { btn.disabled = false; }
+}
+
+$('#aadhaarForm').onsubmit = sendAadhaarOtp;
+$('#aaChange').onclick = (e) => {
+  e.preventDefault();
+  txn = null;
+  clearInterval(resendTimer);
+  $('#aaOtpForm').classList.add('hidden');
+  $('#aadhaarForm').classList.remove('hidden');
+  $('#aadhaar').focus();
+};
+$('#aaResend').onclick = async (e) => {
+  e.preventDefault();
+  if (e.currentTarget.classList.contains('disabled')) return;
+  $('#aaOtpError').textContent = '';
+  try {
+    txn = await api('/api/citizen/otp', { aadhaar: cleanAadhaar($('#aadhaar').value), consent: true });
+    $('#aaDemo').classList.toggle('hidden', !txn.demoOtp);
+    if (txn.demoOtp) $('#aaDemo').innerHTML = `Demo only (simulated UIDAI, no SMS is sent): your OTP is <b>${esc(txn.demoOtp)}</b>`;
+    startResendCountdown();
+  } catch (err) { $('#aaOtpError').textContent = err.message; }
+};
+
+$('#aaOtpForm').onsubmit = async (e) => {
+  e.preventDefault();
+  $('#aaOtpError').textContent = '';
+  if (!txn) { $('#aaChange').click(); return; }
+  const btn = $('#aaVerifyBtn');
+  btn.disabled = true;
+  try {
+    const out = await api('/api/citizen/verify', { txnId: txn.txnId, otp: $('#aaOtp').value.trim(), name: $('#aaName').value });
+    const { isNew } = citizen.signInVerified(out);
+    // The Aadhaar number leaves the page as soon as it is verified.
+    $('#aadhaar').value = '';
+    location.href = nextUrl() || (isNew ? '/citizen#welcome' : '/citizen');
+  } catch (err) {
+    $('#aaOtpError').textContent = err.message;
+    if (/request a new|expired/i.test(err.message)) $('#aaResend').classList.remove('disabled');
+  } finally { btn.disabled = false; }
 };
 
 // ---------------------------------------------------------------- hospital staff / admin
@@ -141,10 +214,6 @@ async function boot() {
   } catch { /* offline: citizen sign-in still works */ }
   $('#hospitalId').innerHTML = hospitals.map((h) => `<option value="${esc(h.id)}">${esc(h.id)} – ${esc(h.name)}</option>`).join('');
   if (params.get('hospital')) $('#hospitalId').value = params.get('hospital');
-  if (role === 'citizen' && citizenMode === 'signin' && !params.get('mode')) {
-    // First visit on this device → start with registration.
-    try { if (!Object.keys(JSON.parse(localStorage.getItem('sehat.citizen.accounts') || '{}')).length) citizenMode = 'register'; } catch { /* ignore */ }
-  }
   render();
 }
 boot();
