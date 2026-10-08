@@ -498,3 +498,7 @@ details.faq summary { cursor: pointer; font-weight: 600; }
 #updateDue { background: var(--red); }
 #updateDue.warn { background: var(--amber); }
 .upd-grid .field > span { min-height: 1.7rem; display: flex; align-items: center; gap: .3rem; flex-wrap: wrap; }
+
+/* 108 control room inside the hospital dashboard */
+.cad-pane { padding-top: 0; }
+.cad-frame { display: block; width: 100%; height: calc(100vh - 210px); min-height: 640px; border: 1px solid var(--line); border-radius: 14px; background: #fff; }

@@ -44,3 +44,7 @@
 .pc-mode p { margin: .3rem 0 0; }
 .pc-jump { display: block; padding: .5rem .65rem; border-radius: 8px; background: #eff6ff; color: #1d4ed8; text-decoration: none; font-size: .9rem; }
 .pc-jump:hover { background: #dbeafe; }
+
+/* Shown inside the hospital dashboard: the dashboard already has a header. */
+.pc-embed .pc-head, .pc-embed .pc-note { display: none; }
+.pc-embed .pc-main { padding-top: .75rem; }

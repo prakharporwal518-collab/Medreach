@@ -754,7 +754,40 @@ function checkCycle() {
   softRender();
 }
 
-const VIEWS = { update: viewUpdate, dashboard: viewDashboard, cases: viewCases, queue: viewQueue, beds: viewBeds, staff: viewStaff, resources: viewResources, reports: viewReports, audit: viewAudit, profile: viewProfile, settings: viewSettings };
+function viewControl() {
+  const mode = state.config.ambulance?.dispatch;
+  const note = mode === 'practice'
+    ? 'Ambulance requests from this hospital’s accepted patients go to this <b>practice</b> 108 control room over the signed integration. Watch the fleet, and unlock with the dispatcher key to assign or cancel.'
+    : mode === 'control-room'
+      ? 'This server sends ambulance requests to the state’s real 108 control room. The practice console below is only for testing.'
+      : 'Ambulances are currently dispatched by the built-in <b>simulated</b> control room. Turn on the practice control room in Render (SEHAT_PRACTICE_CAD=on) to use the console below.';
+  return `
+    <div class="page-head row spread">
+      <div><h1>108 Control Room</h1><p>${note}</p></div>
+      <a class="b" href="/practice-cad" target="_blank" rel="noopener">${icon('arrow', 'sm')} Open full screen</a>
+    </div>
+    <p class="small muted">Practice – not the real 108. In a real emergency always call 108.</p>`;
+}
+
+function showControlPane(on) {
+  const pane = $('#cadPane');
+  if (!pane) return;
+  if (on && !pane.firstChild && !/^https?:$/.test(location.protocol)) {
+    // The single-file offline demo has no server to host the console.
+    pane.innerHTML = '<div class="note-box">The 108 control room needs the live server – open it on the deployed site at <b>/practice-cad</b>.</div>';
+  }
+  if (on && !pane.firstChild) {
+    const f = document.createElement('iframe');
+    f.src = '/practice-cad?embed=1';
+    f.title = '108 practice control room';
+    f.className = 'cad-frame';
+    f.loading = 'lazy';
+    pane.append(f);
+  }
+  pane.classList.toggle('hidden', !on);
+}
+
+const VIEWS = { update: viewUpdate, dashboard: viewDashboard, cases: viewCases, queue: viewQueue, beds: viewBeds, staff: viewStaff, resources: viewResources, reports: viewReports, control: viewControl, audit: viewAudit, profile: viewProfile, settings: viewSettings };
 
 function renderBadges() {
   const n = pending().length;
@@ -773,6 +806,7 @@ function render() {
   if (!state.hospital) return;
   if (state.map) { state.map.destroy(); state.map = null; }
   $('#view').innerHTML = VIEWS[state.view]();
+  showControlPane(state.view === 'control');
   for (const b of document.querySelectorAll('.nav-item[data-view]')) {
     if (b.dataset.view === state.view) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current');
   }

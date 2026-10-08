@@ -4,6 +4,7 @@ import { esc } from './icons.js';
 import { LiveMap, legend } from './livemap.js';
 
 const $ = (s) => document.querySelector(s);
+if (new URLSearchParams(location.search).has('embed') && window.top !== window) document.body.classList.add('pc-embed');
 const KEY = 'medreach.practiceCad.key';
 let key = (() => { try { return sessionStorage.getItem(KEY) || ''; } catch { return ''; } })();
 let map = null;
