@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Practice 108 Control Room – Medreach</title>
+  <meta name="description" content="Practice 108 control room: receives Medreach incidents over the signed integration, dispatches a unit and reports its status back. Not the real 108.">
+  <meta name="robots" content="noindex">
+  <link rel="icon" href="/icons/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap">
+  <link rel="stylesheet" href="/vendor/leaflet/leaflet.css">
+  <link rel="stylesheet" href="/css/ui.css">
+  <link rel="stylesheet" href="/css/practice-cad.css">
+</head>
+<body class="ui">
+  <header class="pc-head">
+    <div class="pc-in">
+      <a class="pc-brand" href="/"><img src="/icons/icon.svg" alt="" width="36" height="36"><span><b>108 Practice Control Room</b><small>for the Medreach integration</small></span></a>
+      <span class="pc-badge">PRACTICE – NOT THE REAL 108</span>
+      <span class="grow"></span>
+      <span class="pc-live" id="live"><span class="dot"></span> <span id="liveText">Connecting…</span></span>
+    </div>
+  </header>
+
+  <main class="pc-main">
+    <div class="note-box pc-note">
+      <b>What is this?</b> It plays the role of the state's 108 / 102 dispatch system. When a hospital accepts a patient and the family asks for an ambulance, Medreach sends a
+      <b>signed incident</b> here over HTTPS. This control room assigns the nearest suitable ambulance from its own fleet, drives it, and sends <b>signed status updates</b> back –
+      exactly the contract the real 108 system would use. To try it: report an emergency on <a href="/report" target="_blank" rel="noopener">/report</a> and choose <i>Ambulance</i>.
+    </div>
+
+    <div class="pc-off hidden" id="off"></div>
+
+    <div class="pc-grid" id="board">
+      <section class="panel pc-map-panel">
+        <div class="panel-head"><h3>Live dispatch map</h3><span class="small muted" id="counts"></span></div>
+        <div id="map" class="pc-map" role="img" aria-label="Map of ambulances and incidents"></div>
+        <div id="legend"></div>
+      </section>
+      <section class="panel">
+        <div class="panel-head"><h3>Dispatcher</h3></div>
+        <form id="keyForm" class="pc-key">
+          <label class="field"><span>Dispatcher key <small class="muted">(= SEHAT_EMS_SECRET)</small></span>
+            <span class="input"><input id="key" type="password" autocomplete="off" placeholder="needed to assign or cancel"></span></label>
+          <button class="b" type="submit">Unlock actions</button>
+          <p class="small muted" id="keyState">Without the key you can watch; incidents are assigned automatically after a few seconds.</p>
+        </form>
+        <h3 style="margin-top:1rem">Fleet</h3>
+        <ul class="pc-fleet" id="fleet"></ul>
+      </section>
+    </div>
+
+    <section class="pc-incidents">
+      <h2>Incidents</h2>
+      <div id="incidents" class="pc-list" aria-live="polite"><p class="muted">Waiting for incidents from Medreach…</p></div>
+    </section>
+  </main>
+
+  <div id="toast" class="toast" role="status"></div>
+  <script src="/vendor/leaflet/leaflet.js"></script>
+  <script type="module" src="/js/practice-cad.js"></script>
+</body>
+</html>

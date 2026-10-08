@@ -836,7 +836,7 @@ function showTransport() {
         <button class="choice ${ambulanceBetter ? 'rec' : ''}" data-mode="ambulance" type="button">
           <span class="emoji">🚑</span><b>${s.ambulance}</b>
           <span class="small">${esc(s.ambServiceName(tr.ambulanceType === 'JANANI' ? '102' : '108', tr.ambulanceType))} · ${s.ownEta(o.etaMin)}</span>
-          ${state.config.ambulance?.dispatch === 'control-room' ? '' : `<span class="badge sim">${s.simulatedTag}</span>`}
+          ${state.config.ambulance?.dispatch === 'control-room' ? '' : `<span class="badge sim">${state.config.ambulance?.dispatch === 'practice' ? s.practiceTag : s.simulatedTag}</span>`}
           ${ambulanceBetter ? `<p class="small" style="color:var(--brand)">★ ${s.ambRec}</p>` : ''}
         </button>
         <button class="choice ${!ambulanceBetter ? 'rec' : ''}" data-mode="own" type="button">
@@ -930,7 +930,8 @@ async function showNavigation() {
       routes.toPatient = await route(tr.from, state.location, state.lang);
       window.L.polyline(routes.toPatient.coords, { color: '#d62839', weight: 4, dashArray: '6 8' }).addTo(navMap);
     }
-    ambMarker = tr.position ? marker(navMap, tr.position, '🚑') : null;
+    // Simulated fleet: as before. Control-room ambulance: created (and the view widened once) by onAmbulance.
+    ambMarker = tr.simulated && tr.position ? marker(navMap, tr.position, '🚑') : null;
     onAmbulance(tr);
   } else {
     if (tr?.incident) renderIncident(tr);
@@ -987,7 +988,7 @@ function renderIncident(tr) {
   box.classList.remove('hidden');
   box.classList.toggle('alert', failed || inc.status === 'no_unit');
   box.innerHTML = `
-    <div class="row spread"><b>🚑 ${esc(s.incidentTitle(svc))}</b>${tr.simulated !== false && inc.channel !== 'control-room' ? `<span class="badge sim">${esc(s.incidentSim)}</span>` : ''}</div>
+    <div class="row spread"><b>🚑 ${esc(s.incidentTitle(svc))}</b>${inc.channel !== 'control-room' ? `<span class="badge sim">${esc(s.incidentSim)}</span>` : state.config.ambulance?.dispatch === 'practice' ? `<span class="badge sim">${esc(s.incidentPractice)}</span>` : ''}</div>
     ${inc.id ? `<p style="margin:.35rem 0">${s.incidentNo}: <b class="mono">${esc(inc.id)}</b></p>` : ''}
     <p class="small" style="margin:.2rem 0 .5rem">${esc(text)}</p>
     <a class="btn ${failed ? 'danger' : ''} block" href="tel:${esc(svc)}">📞 ${failed ? s.call108Direct.replace('108', svc) : `${svc}`}</a>`;
@@ -1000,15 +1001,24 @@ function onAmbulance(tr) {
   if (Number.isFinite(tr.etaMin)) $('#etaBig').textContent = tr.etaMin;
   $('#ambBadge').textContent = `🚑 ${tr.ambulance?.id || tr.incident?.service || '108'}${tr.simulated ? ` (${s.simulatedTag})` : ''} · ${s.ambPhase[tr.phase] || ''}`;
   if (!tr.position) return;
-  if (!ambMarker && navMap) ambMarker = marker(navMap, tr.position, '🚑');
+  if (!ambMarker && navMap) {
+    ambMarker = marker(navMap, tr.position, '🚑');
+    // The ambulance usually starts outside the pick-up → hospital view: widen it once.
+    navMap.fitBounds(window.L.latLngBounds([[state.location.lat, state.location.lng], [state.selected.hospital.lat, state.selected.hospital.lng], [tr.position.lat, tr.position.lng]]).pad(0.2));
+  }
   if (!ambMarker) return;
   let pt = [tr.position.lat, tr.position.lng];
   // The server already moves the ambulance on real roads; otherwise follow our own route.
-  if (!tr.onRoad && tr.phase === 'to_patient' && routes.toPatient && !routes.toPatient.fallback) pt = pointAlong(routes.toPatient.coords, tr.progress);
-  if (!tr.onRoad && tr.phase === 'to_hospital' && routes.toHospital && !routes.toHospital.fallback) pt = pointAlong(routes.toHospital.coords, tr.progress);
+  // (Only for the simulated fleet: a real control room reports the true position.)
+  if (tr.simulated && !tr.onRoad && tr.phase === 'to_patient' && routes.toPatient && !routes.toPatient.fallback) pt = pointAlong(routes.toPatient.coords, tr.progress);
+  if (tr.simulated && !tr.onRoad && tr.phase === 'to_hospital' && routes.toHospital && !routes.toHospital.fallback) pt = pointAlong(routes.toHospital.coords, tr.progress);
   if (tr.phase === 'at_patient') pt = [state.location.lat, state.location.lng];
   ambMarker.setLatLng(pt);
-  if (tr.phase === 'to_patient' && tr.ambulance) $('#navSub').textContent = ` · ${s.ambOnWay(tr.ambulance.id, Math.max(0, (tr.etaMin ?? 0) - (tr.etaToHospitalMin || 0) - 2))}`;
+  if (tr.phase === 'to_patient' && tr.ambulance) {
+    // Simulated fleet: derive it; real control room: it reports the time to the patient (if it can).
+    const toPatient = tr.simulated ? Math.max(0, (tr.etaMin ?? 0) - (tr.etaToHospitalMin || 0) - 2) : tr.etaToPatientMin;
+    $('#navSub').textContent = ` · ${Number.isFinite(toPatient) ? s.ambOnWay(tr.ambulance.id, toPatient) : `${tr.ambulance.id} – ${s.ambPhase.to_patient}`}`;
+  }
 }
 
 // ------------------------------------------------------------------ ⑧ confirmed hospital

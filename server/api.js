@@ -169,7 +169,7 @@ export function createApi({
       demoLocation: DEMO_LOCATION,
       emergencyNumber: '108',
       citizenSignIn: citizenAuth.enabled() ? 'aadhaar-otp' : 'unavailable',
-      ambulance: { numbers: { emergency: '108', mother: '102', all: '112' }, dispatch: integrations.emsLive ? 'control-room' : 'simulated' },
+      ambulance: { numbers: { emergency: '108', mother: '102', all: '112' }, dispatch: integrations.emsLive ? (integrations.emsPractice ? 'practice' : 'control-room') : 'simulated' },
       smsNumber: integrations.smsNumber || null,
       smsDemo: dataMode === 'demo',
       simulated: dataMode === 'demo'

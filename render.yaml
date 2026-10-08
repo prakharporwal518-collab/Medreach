@@ -42,7 +42,10 @@ services:
       # Optional: without it a random key is made at every start.
       - key: SEHAT_DATA_KEY
         sync: false
-      # 108 / 102 control room (CAD) – only when the state's 108 operator provides an endpoint.
+      # 108 / 102 control room (CAD). For the hackathon: SEHAT_PRACTICE_CAD=on and
+      # SEHAT_EMS_URL=https://<your-site>/api/practice-cad/incidents (practice control room, not the real 108).
+      - key: SEHAT_PRACTICE_CAD
+        sync: false
       - key: SEHAT_EMS_URL
         sync: false
       - key: SEHAT_EMS_SECRET

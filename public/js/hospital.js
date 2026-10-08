@@ -810,7 +810,8 @@ function transportText(c) {
   const phase = (a?.phase || t.phase || '').replace(/_/g, ' ');
   const inc = t.incident?.id ? ` · ${t.incident.service} #${t.incident.id}` : '';
   if (['failed', 'cancelled'].includes(t.incident?.status)) return `🚑 ${t.incident.service} control room unreachable – family told to call ${t.incident.service}`;
-  return `🚑 ${t.ambulance?.id || `${t.incident?.service || '108'} requested`}${t.simulated ? ' (simulated)' : ''}${phase ? ` · ${phase}` : ''}${inc}`;
+  const tag = t.simulated ? ' (simulated)' : state.config.ambulance?.dispatch === 'practice' ? ' (practice 108)' : '';
+  return `🚑 ${t.ambulance?.id || `${t.incident?.service || '108'} requested`}${tag}${phase ? ` · ${phase}` : ''}${inc}`;
 }
 
 function drawNeighbour(h) {
