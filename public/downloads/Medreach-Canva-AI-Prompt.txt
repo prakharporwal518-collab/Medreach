@@ -16,7 +16,7 @@ Subtitle: AI-powered emergency coordination for Madhya Pradesh
 - Gets the hospital to accept the patient before the family travels
 - Guides the patient there with live tracking
 - MPOnline Idea & Innovation Hackathon 2026 · Challenge 5 · Healthcare
-- Live demo: medreach-wtne.onrender.com · Code: github.com/prakharporwal518-collab/Medreach
+- Live demo: medreach-2.onrender.com · Code: github.com/prakharporwal518-collab/Medreach
 Visual idea: Dark navy cover, Medreach logo (teal square with red medical cross over a bridge arc), illustration of a phone, hospital and ambulance.
 
 Slide 2: Introduction: What Medreach Is
@@ -128,5 +128,5 @@ Subtitle: Thank you
 - Privacy by design: consent, masked IDs, staff OTP and roles, audit logs, 24-hour deletion, DPDP Act 2023 aligned
 - Ready to scale: low-cost open stack, clear pilot plan, integration path to HFR, HMIS, 108 and ABDM
 - Our ask: a 3-month pilot with Bhopal hospitals, then state-wide integration
-- Live demo: medreach-wtne.onrender.com · Code: github.com/prakharporwal518-collab/Medreach · Hospital login: Bansal Hospital, BANSAL-ED01
+- Live demo: medreach-2.onrender.com · Code: github.com/prakharporwal518-collab/Medreach · Hospital login: Bansal Hospital, BANSAL-ED01
 Visual idea: Dark navy closing slide with 6 reason cards, a teal “Our ask” band and “Thank you”.
