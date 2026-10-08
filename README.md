@@ -3,15 +3,15 @@
 **Challenge 5 · AI Innovation for Public Services & Citizen-Centric Governance · Domain: Healthcare**
 MPOnline Idea & Innovation Hackathon 2026
 
-### 🌐 Live demo: **https://medreach-wtne.onrender.com**
+### 🌐 Live demo: **https://medreach-2.onrender.com**
 
 | Open | Link |
 |---|---|
-| 🏠 Home page | https://medreach-wtne.onrender.com |
-| 🔐 Sign in (citizen / hospital staff) | https://medreach-wtne.onrender.com/login |
-| 👤 Citizen dashboard | https://medreach-wtne.onrender.com/citizen |
-| 🏥 Hospital dashboard | https://medreach-wtne.onrender.com/hospital |
-| 🚨 Report emergency (no login) | https://medreach-wtne.onrender.com/report |
+| 🏠 Home page | https://medreach-2.onrender.com |
+| 🔐 Sign in (citizen / hospital staff) | https://medreach-2.onrender.com/login |
+| 👤 Citizen dashboard | https://medreach-2.onrender.com/citizen |
+| 🏥 Hospital dashboard | https://medreach-2.onrender.com/hospital |
+| 🚨 Report emergency (no login) | https://medreach-2.onrender.com/report |
 
 > Free Render plan: the first visit after 15 idle minutes takes about 30–50 seconds to wake up. Open the link a minute before presenting.
 
@@ -143,7 +143,7 @@ For ASHA workers and village volunteers: anyone can report for someone else with
 
 ## ☁️ Deploy on Render
 
-**Live now:** https://medreach-wtne.onrender.com (auto-deploys on every merge to `main`).
+**Live now:** https://medreach-2.onrender.com (auto-deploys on every merge to `main`).
 
 One click: **New → Blueprint** → select this repo. [`render.yaml`](render.yaml) sets the build and start commands, the health check and all environment variables. It asks for `GEMINI_API_KEY`, `ANTHROPIC_API_KEY` and `SEHAT_DATA_KEY`. All are optional; leave them empty to run without AI.
 
