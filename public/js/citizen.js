@@ -543,17 +543,19 @@ function viewProfile() {
     <div class="page-head"><h1>Profile</h1><p>Your citizen account on this device.</p></div>
     <div class="cols c21">
       <form class="panel" id="profileForm">
-        <div class="row" style="margin-bottom:1rem"><span class="avatar" style="width:64px;height:64px;font-size:1.3rem">${esc(initials(me.name))}</span><div><h2 style="margin:0">${esc(me.name)}</h2><span class="muted small">Citizen · member since ${new Date(me.createdAt).toLocaleDateString()}</span></div></div>
+        <div class="row" style="margin-bottom:1rem"><span class="avatar" style="width:64px;height:64px;font-size:1.3rem">${esc(initials(me.name))}</span><div><h2 style="margin:0">${esc(me.name)}</h2><span class="muted small">Citizen · member since ${new Date(me.createdAt).toLocaleDateString()}</span><br><span class="pill green">${icon('shield', 'sm')} Verified with ${esc(me.verifiedWith || 'Aadhaar OTP')}</span></div></div>
         <div class="grid-2">
-          <label class="field"><span>Full name</span><span class="input"><input name="name" value="${esc(me.name)}"></span></label>
-          <label class="field"><span>Email</span><span class="input"><input name="email" type="email" value="${esc(me.email)}"></span></label>
-          <label class="field"><span>Mobile (login)</span><span class="input"><input value="+91 ${esc(me.phone)}" disabled></span></label>
+          <label class="field"><span>Full name (from Aadhaar)</span><span class="input"><input value="${esc(me.name)}" disabled></span></label>
+          <label class="field"><span>Email</span><span class="input"><input name="email" type="email" value="${esc(me.email || '')}"></span></label>
+          <label class="field"><span>Aadhaar</span><span class="input"><input value="${esc(me.maskedAadhaar || '')}" disabled></span></label>
+          <label class="field"><span>Aadhaar-linked mobile</span><span class="input"><input value="${esc(me.maskedMobile || '')}" disabled></span></label>
           <label class="field"><span>App language</span><span class="input"><select name="lang"><option value="en" ${lang === 'en' ? 'selected' : ''}>English</option><option value="hi" ${lang === 'hi' ? 'selected' : ''}>हिंदी</option></select></span></label>
         </div>
         <button class="b primary" type="submit">Save profile</button>
       </form>
       <div class="panel">
         <h3>${icon('lock', 'sm')} Privacy &amp; data</h3>
+        <p class="small muted">Your Aadhaar number is never stored: this device keeps only <b>${esc(me.maskedAadhaar || 'XXXX XXXX ····')}</b> and a signed sign-in token.</p>
         <p class="small muted">Your citizen portal is completely separate from the hospital staff portal. Hospitals never see this profile; they only see what you share, with consent, when you raise an emergency.</p>
         <button class="b" id="signOut2">${icon('logout', 'sm')} Sign out</button>
         <button class="b danger" id="deleteAll" style="margin-top:.6rem">${icon('trash', 'sm')} Delete all my data from this device</button>
@@ -671,7 +673,7 @@ function bindView() {
     $('#profileForm').onsubmit = (e) => {
       e.preventDefault();
       const f = Object.fromEntries(new FormData(e.target));
-      Object.assign(me, citizen.updateAccount({ name: f.name, email: f.email }));
+      Object.assign(me, citizen.updateAccount({ email: f.email }));
       try { localStorage.setItem('sehat.lang', JSON.stringify(f.lang)); } catch { /* ignore */ }
       renderUser();
       toast('Profile saved');
@@ -750,7 +752,7 @@ async function boot() {
   go(VIEWS[start] || start === 'alone' ? start : 'home');
   window.addEventListener('hashchange', () => { const v = location.hash.slice(1); if ((VIEWS[v] || v === 'alone') && v !== state.view) go(v); });
   // A case raised inside the embedded emergency app updates My Cases right away.
-  window.addEventListener('storage', async (e) => { if (e.key?.startsWith('sehat.citizen.profile.')) { await refreshTracking(); updateLiveViews(); } });
+  window.addEventListener('storage', async (e) => { if (e.key?.startsWith('medreach.citizen.profile.')) { await refreshTracking(); updateLiveViews(); } });
   startHospitalStream();
   await refreshTracking();
   updateLiveViews();

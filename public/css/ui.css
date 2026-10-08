@@ -462,3 +462,15 @@ details.faq summary { cursor: pointer; font-weight: 600; }
 .leaflet-container { background-color: #e9eff6; background-image: linear-gradient(rgba(148, 163, 184, .18) 1px, transparent 1px), linear-gradient(90deg, rgba(148, 163, 184, .18) 1px, transparent 1px); background-size: 32px 32px; }
 .map-box.tall { height: 420px; }
 @media (max-width: 900px) { .map-box.tall { height: 320px; } }
+
+/* Citizen sign-in with Aadhaar + OTP */
+.aadhaar-note { margin-bottom: 1rem; display: flex; gap: .45rem; align-items: flex-start; }
+.consent-row { align-items: flex-start; gap: .5rem; margin: .2rem 0 .7rem; flex-wrap: nowrap; color: var(--ink-2); line-height: 1.45; }
+.consent-row input { margin-top: .2rem; flex: none; }
+.otp-links { margin-top: .7rem; }
+.otp-links a.disabled { color: var(--muted); pointer-events: none; }
+.integrity { display: flex; flex-wrap: wrap; gap: .45rem; align-items: center; margin-bottom: 1rem; font-size: .88rem; }
+.integrity.ok { border-color: var(--green); background: var(--green-soft); color: var(--ink); }
+.integrity.ok > svg { color: var(--green); }
+.integrity.bad { border-color: var(--red); background: var(--red-soft); color: var(--red); }
+.mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }

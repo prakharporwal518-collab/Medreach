@@ -7,6 +7,8 @@
 //   • Trusted contact  – read-only track token (limited view, no medical details)
 //   • Hospital staff   – Bearer session token from Hospital ID + Staff ID + OTP,
 //                        bound to one hospital, permissions by role, all actions audited
+//   • Citizen account  – signed token after Aadhaar + OTP (optional: reporting an
+//                        emergency never needs a login)
 
 import { triage as ruleTriage } from '../shared/triage.js';
 import { rankHospitals, explain, scoreBreakdown, publicHospital } from '../shared/matching.js';
@@ -15,10 +17,11 @@ import { templateHandover } from '../shared/handover.js';
 import { DEMO_LOCATION } from './data/hospitals.js';
 import { STAFF } from './data/staff.js';
 import { ROLES } from '../shared/roles.js';
+import { createCitizenAuth } from './citizen-auth.js';
 
 const fail = (status, message) => { throw Object.assign(new Error(message), { status }); };
 
-export function createApi({ store, auth, dataMode = 'demo', ai = null }) {
+export function createApi({ store, auth, dataMode = 'demo', ai = null, citizenAuth = createCitizenAuth({ demoMode: dataMode === 'demo' }) }) {
   const aiOn = () => Boolean(ai?.enabled());
   // Lets the single-file demo react to referrals (e.g. log the desk officer in).
   const hooks = { beforeRequest: async () => {}, afterRequest: () => {} };
@@ -44,6 +47,7 @@ export function createApi({ store, auth, dataMode = 'demo', ai = null }) {
       dataMode,
       demoLocation: DEMO_LOCATION,
       emergencyNumber: '108',
+      citizenSignIn: citizenAuth.enabled() ? 'aadhaar-otp' : 'unavailable',
       simulated: dataMode === 'demo'
         ? { hospitalData: true, ambulanceDispatch: true, hospitalResponseWhenNoStaffLoggedIn: true, sms: true }
         : { hospitalData: false, ambulanceDispatch: true, hospitalResponseWhenNoStaffLoggedIn: false, sms: false },
@@ -66,6 +70,8 @@ export function createApi({ store, auth, dataMode = 'demo', ai = null }) {
 
     // ---------------------------------------------------------------- 🏥 deterministic matching
     ['GET', /^\/api\/hospitals$/, () => store.hospitals.map(publicHospital)],
+    // Public fleet status: unit, type, base and whether it is free. Never patient data or live position.
+    ['GET', /^\/api\/ambulances$/, () => store.ambulances.map(({ id, type, base, available }) => ({ id, type, base, available: Boolean(available) }))],
     ['POST', /^\/api\/match$/, ({ body }) => {
       const { triage, location, mode = 'ambulance', lang = 'en', excludeIds = [] } = body;
       if (!triage?.required || !Number.isFinite(location?.lat) || !Number.isFinite(location?.lng)) {
@@ -125,6 +131,15 @@ export function createApi({ store, auth, dataMode = 'demo', ai = null }) {
       return store.trackView(c);
     }],
 
+    // ---------------------------------------------------------------- citizen sign-in (Aadhaar + OTP)
+    ['POST', /^\/api\/citizen\/otp$/, ({ body }) => citizenAuth.requestOtp({ aadhaar: body.aadhaar, consent: body.consent })],
+    ['POST', /^\/api\/citizen\/verify$/, ({ body }) => citizenAuth.verifyOtp({ txnId: body.txnId, otp: body.otp, name: body.name })],
+    ['GET', /^\/api\/citizen\/me$/, async ({ token }) => ({ citizen: (await citizenAuth.session(token)) || fail(401, 'Please sign in again') })],
+    ['GET', /^\/api\/citizen\/demo-ids$/, () => {
+      if (dataMode !== 'demo') fail(404, 'not found');
+      return citizenAuth.demoIdentities();
+    }],
+
     // ---------------------------------------------------------------- hospital staff auth
     ['POST', /^\/api\/auth\/otp$/, ({ body }) => {
       if (!body.hospitalId || !body.staffId) fail(400, 'Hospital ID and Staff ID are required');
@@ -163,6 +178,11 @@ export function createApi({ store, auth, dataMode = 'demo', ai = null }) {
     ['GET', /^\/api\/hospitals\/([^/]+)\/audit$/, ({ params, token }) => {
       auth.require(token, 'audit.view', params[0]);
       return store.auditFor(params[0]);
+    }],
+    // Integrity check of the tamper-evident (hash-chained) audit log.
+    ['GET', /^\/api\/hospitals\/([^/]+)\/audit\/verify$/, ({ params, token }) => {
+      auth.require(token, 'audit.view', params[0]);
+      return store.verifyAudit();
     }],
   ];
 

@@ -142,6 +142,7 @@ async function load(id) {
 async function loadAudit() {
   if (!canDo('audit.view')) { state.audit = []; return; }
   try { state.audit = await api(`/api/hospitals/${state.hospital.id}/audit`); } catch { state.audit = []; }
+  try { state.auditCheck = await api(`/api/hospitals/${state.hospital.id}/audit/verify`); } catch { state.auditCheck = null; }
 }
 
 async function patchStatus(patch) {
@@ -549,10 +550,20 @@ function viewReports() {
     </div>`;
 }
 
+// Result of the server's hash-chain check: any edited, deleted or reordered entry breaks it.
+function auditIntegrity() {
+  const v = state.auditCheck;
+  if (!v) return '';
+  return v.ok
+    ? `<div class="panel integrity ok">${icon('shield', 'sm')} <b>Audit log intact</b> · all ${v.entries} entries are hash-chained (SHA-256) and verified – none edited, deleted or reordered. <span class="muted small mono">chain head ${esc(v.head.slice(0, 16))}…</span></div>`
+    : `<div class="panel integrity bad">${icon('shield', 'sm')} <b>Audit log integrity check FAILED</b> at entry #${esc(String(v.brokenAt))}. Report this to the State Health Department.</div>`;
+}
+
 function viewAudit() {
   if (!canDo('audit.view')) return '<div class="panel empty-state">🔒 Only the Nodal Officer and State Admin can view the audit log.</div>';
   return `
     <div class="page-head"><h1>Audit Log</h1><p>Who did what, when – logins, status changes, referral decisions and denied access attempts.</p></div>
+    ${auditIntegrity()}
     <div class="panel"><div class="table-wrap"><table class="t"><thead><tr><th>Time</th><th>Who</th><th>Role</th><th>Action</th><th>Details</th></tr></thead><tbody>
       ${state.audit.slice(0, 150).map((r) => `<tr><td class="small">${new Date(r.at).toLocaleString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', day: 'numeric', month: 'short' })}</td><td>${esc(r.name || r.staffId || 'system')}</td><td class="small muted">${esc(r.roleLabel || '')}</td><td><span class="pill ${/denied|failed/.test(r.action) ? 'red' : /accepted|success|verified/.test(r.action) ? 'green' : 'gray'}">${esc(r.action)}</span></td><td class="small">${esc(r.result || '')}</td></tr>`).join('') || '<tr><td colspan="5" class="empty-state">No entries yet.</td></tr>'}
     </tbody></table></div></div>`;

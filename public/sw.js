@@ -4,19 +4,21 @@
 // internet. Only PUBLIC API data (hospital list, config) is ever cached –
 // patient, case and staff responses never touch the cache.
 
-const VERSION = 'medreach-v7';
+const VERSION = 'medreach-v8';
 const SHELL = [
   '/', '/index.html', '/report', '/report.html', '/login', '/login.html', '/citizen', '/citizen.html', '/hospital', '/hospital.html',
-  '/css/app.css', '/css/ui.css', '/manifest.webmanifest', '/icons/icon.svg',
+  '/css/app.css', '/css/ui.css', '/css/home.css', '/manifest.webmanifest', '/icons/icon.svg',
   '/img/hero.svg', '/img/citizens.svg', '/img/hospital.svg', '/img/alone.svg', '/img/ambulance.svg',
+  '/img/home/hero.jpg', '/img/home/ambulance.jpg', '/img/home/beds.jpg', '/img/home/doctor.jpg', '/img/home/blood.jpg',
+  '/img/home/equipment.jpg', '/img/home/hospital.jpg',
   '/js/app.js', '/js/api.js', '/js/i18n.js', '/js/voice.js', '/js/vision.js', '/js/ocr.js', '/js/map.js', '/js/livemap.js', '/js/hospital.js',
   '/js/icons.js', '/js/landing.js', '/js/login.js', '/js/citizen.js', '/js/citizen-store.js',
   '/shared/triage.js', '/shared/matching.js', '/shared/predict.js', '/shared/capabilities.js', '/shared/ocr-parse.js',
-  '/shared/freshness.js', '/shared/roles.js', '/shared/handover.js', '/shared/geo.js',
+  '/shared/freshness.js', '/shared/roles.js', '/shared/handover.js', '/shared/geo.js', '/shared/aadhaar.js',
   '/vendor/leaflet/leaflet.css', '/vendor/leaflet/leaflet.js',
 ];
 
-const PUBLIC_API = ['/api/hospitals', '/api/config'];
+const PUBLIC_API = ['/api/hospitals', '/api/ambulances', '/api/config'];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(caches.open(VERSION).then((c) => Promise.allSettled(SHELL.map((u) => c.add(u)))));

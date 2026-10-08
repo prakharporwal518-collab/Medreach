@@ -3,75 +3,182 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>Medreach – Right Hospital, Right Now</title>
+  <title>Medreach – Quick Help, Right Care</title>
   <meta name="description" content="Medreach understands a medical emergency, finds a hospital that can treat it right now, gets the hospital to accept before you travel, and guides you there.">
-  <meta name="theme-color" content="#121c2f">
+  <meta name="theme-color" content="#0b2a4a">
   <link rel="manifest" href="/manifest.webmanifest">
   <link rel="icon" href="/icons/icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="/icons/icon.svg">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Noto+Sans+Devanagari:wght@400;600;700&display=swap">
   <link rel="stylesheet" href="/css/ui.css">
+  <link rel="stylesheet" href="/css/home.css">
 </head>
-<body class="ui">
-  <header class="lp-nav">
-    <div class="in">
-      <a class="brand-lg" href="/">
-        <img src="/icons/icon.svg" alt="">
-        <span><b>Medreach</b><small>Care When It Matters</small></span>
+<body class="ui home">
+  <a class="skip" href="#main">Skip to content</a>
+  <header class="hd" id="top">
+    <div class="hd-in">
+      <a class="hd-brand" href="/">
+        <img src="/icons/icon.svg" alt="" width="46" height="46">
+        <span><b>Medreach</b><small>Emergency Response • Better Outcomes</small></span>
       </a>
-      <nav class="lp-links" aria-label="Sections">
-        <a href="#how">How it works</a>
-        <a href="#features">Technology</a>
-        <a href="#portals">Portals</a>
-        <a href="#privacy">Privacy</a>
+      <button class="hd-menu" id="menuBtn" type="button" aria-label="Open menu" aria-expanded="false" aria-controls="hdNav"><i data-i="menu"></i></button>
+      <nav class="hd-nav" id="hdNav" aria-label="Main">
+        <a href="#top" aria-current="page">Home</a>
+        <a href="#about">About</a>
+        <a href="#hospitals">Hospitals</a>
+        <a href="#ambulances">Ambulances</a>
+        <a href="#how">How It Works</a>
+        <a href="#contact">Contact</a>
+        <a class="hd-login" href="/login"><i data-i="user"></i> Login / Register</a>
       </nav>
-      <span class="spacer"></span>
-      <a class="b ghost hide-sm" href="/login"><i data-i="login"></i> Sign in</a>
-      <a class="b danger" href="/report"><i data-i="siren"></i> Emergency</a>
     </div>
   </header>
 
-  <main>
+  <main id="main">
     <!-- ───────────── Hero ───────────── -->
-    <section class="lp-hero">
-      <div class="wrap">
-        <div>
-          <span class="eyebrow"><i data-i="star" class="sm"></i> MPOnline Hackathon 2026 · AI for Public Services</span>
-          <h1>The <em>right hospital</em>, right now, confirmed before you leave home.</h1>
-          <p class="lead">In an emergency, the nearest hospital may have no cardiologist on duty or no free ICU bed. Medreach understands what happened (in Hindi or English), finds a hospital that can treat it <b>now</b>, and gets that hospital to <b>accept</b> the patient before anyone travels.</p>
-          <div class="cta-row">
-            <a class="b danger lg" href="/report"><i data-i="siren"></i> Report an emergency – no login</a>
-            <a class="b lg" href="/login?role=citizen"><i data-i="user"></i> Citizen login</a>
-            <a class="b lg" href="/login?role=staff"><i data-i="hospital"></i> Hospital staff</a>
-          </div>
-          <div class="trust">
-            <span><i data-i="check" class="sm"></i> Hindi &amp; English voice</span>
-            <span><i data-i="check" class="sm"></i> Works on weak networks</span>
-            <span><i data-i="check" class="sm"></i> Hospital confirms first</span>
-            <span><i data-i="check" class="sm"></i> 108 always one tap away</span>
-          </div>
+    <section class="hero">
+      <img class="hero-photo" src="/img/home/hero.jpg" alt="An ambulance at the emergency entrance of a district hospital" width="764" height="406" fetchpriority="high">
+      <div class="hero-in">
+        <p class="hero-eyebrow"><span class="tricolour" aria-hidden="true"></span><span>Madhya Pradesh <span class="sep">|</span> Emergency healthcare network</span></p>
+        <h1>Quick help. Right care.<br>When every second matters.</h1>
+        <p class="hero-lead">Medreach is an emergency coordination platform that connects people in need with the right hospitals, ambulances and medical resources across Madhya Pradesh.</p>
+        <div class="hero-cta">
+          <a class="cta cta-108" href="tel:108">
+            <span class="cta-ico"><i data-i="phone"></i></span>
+            <span class="cta-txt"><b>Emergency? Call 108</b><small>(Ambulance &amp; Medical Help)</small></span>
+            <i data-i="arrow" class="cta-arrow"></i>
+          </a>
+          <a class="cta cta-report" href="/report">
+            <span class="cta-ico"><i data-i="clipboard"></i></span>
+            <span class="cta-txt"><b>Or Report an Emergency</b><small>(Speak or type – no login)</small></span>
+            <i data-i="arrow" class="cta-arrow"></i>
+          </a>
         </div>
-        <img class="hero-art" src="/img/hero.svg" alt="A phone showing Medreach guiding an ambulance to a hospital that has accepted the patient" width="640" height="520">
       </div>
     </section>
 
-    <!-- ───────────── Live stats (from the real API) ───────────── -->
-    <section class="stats-strip" aria-label="Live network status">
+    <!-- ───────────── Quick availability links ───────────── -->
+    <div class="wrap">
+      <nav class="svc-strip" aria-label="Check availability">
+        <a href="#availability" data-tab="ambulance"><span class="svc-ico red"><i data-i="ambulance"></i></span><span>Ambulance<br>Availability</span></a>
+        <a href="#availability" data-tab="beds"><span class="svc-ico navy"><i data-i="bed"></i></span><span>Hospital<br>Bed Availability</span></a>
+        <a href="#availability" data-tab="doctors"><span class="svc-ico navy"><i data-i="stethoscope"></i></span><span>Doctor Availability<br>(Specialists)</span></a>
+        <a href="#availability" data-tab="blood"><span class="svc-ico red"><i data-i="drop"></i></span><span>Blood<br>Availability</span></a>
+        <a href="#availability" data-tab="equipment"><span class="svc-ico navy"><i data-i="monitor"></i></span><span>Equipment<br>&amp; Resources</span></a>
+      </nav>
+    </div>
+
+    <!-- ───────────── Healthcare at your fingertips ───────────── -->
+    <section class="ft">
+      <div class="wrap ft-grid">
+        <div class="ft-main">
+          <span class="tri-bar" aria-hidden="true"></span>
+          <h2>Healthcare at Your Fingertips</h2>
+          <p class="ft-sub">From emergency transport to hospital resources — everything you need, when you need it.</p>
+          <div class="svc-cards">
+            <article class="svc-card">
+              <img src="/img/home/ambulance.jpg" alt="" width="312" height="148" loading="lazy">
+              <span class="svc-badge red"><i data-i="ambulance"></i></span>
+              <h3>Ambulance Services</h3>
+              <p>See which ambulances are free near you and get help fast.</p>
+              <a href="#availability" data-tab="ambulance">Find Ambulances <i data-i="arrow" class="sm"></i></a>
+            </article>
+            <article class="svc-card">
+              <img src="/img/home/beds.jpg" alt="" width="296" height="148" loading="lazy">
+              <span class="svc-badge blue"><i data-i="bed"></i></span>
+              <h3>Hospital Beds</h3>
+              <p>Find hospitals with free ICU, emergency and labour beds.</p>
+              <a href="#availability" data-tab="beds">View Beds <i data-i="arrow" class="sm"></i></a>
+            </article>
+            <article class="svc-card">
+              <img src="/img/home/doctor.jpg" alt="" width="294" height="148" loading="lazy">
+              <span class="svc-badge green"><i data-i="stethoscope"></i></span>
+              <h3>Doctors &amp; Specialists</h3>
+              <p>Check which specialists are on duty in each hospital now.</p>
+              <a href="#availability" data-tab="doctors">Find Doctors <i data-i="arrow" class="sm"></i></a>
+            </article>
+            <article class="svc-card">
+              <img src="/img/home/blood.jpg" alt="" width="278" height="148" loading="lazy">
+              <span class="svc-badge red"><i data-i="drop"></i></span>
+              <h3>Blood Availability</h3>
+              <p>Find hospitals with a blood bank and an open emergency.</p>
+              <a href="#availability" data-tab="blood">Check Blood <i data-i="arrow" class="sm"></i></a>
+            </article>
+            <article class="svc-card">
+              <img src="/img/home/equipment.jpg" alt="" width="290" height="148" loading="lazy">
+              <span class="svc-badge violet"><i data-i="monitor"></i></span>
+              <h3>Equipment &amp; Resources</h3>
+              <p>CT, MRI, cath lab, dialysis and free ventilators.</p>
+              <a href="#availability" data-tab="equipment">View Resources <i data-i="arrow" class="sm"></i></a>
+            </article>
+          </div>
+        </div>
+
+        <article class="trusted">
+          <img src="/img/home/hospital.jpg" alt="A multi-storey hospital building" width="506" height="266" loading="lazy">
+          <h3>Trusted Hospitals. Better Care.</h3>
+          <p>Medreach connects you to verified hospitals with real-time availability of beds, ICU, specialists and essential resources.</p>
+          <div class="trusted-foot"><span class="tf-ico"><i data-i="shield"></i></span><span>Every figure shows <b>who updated it and when</b>. Only authorised hospital staff can change it.</span></div>
+        </article>
+
+        <aside class="side-col" aria-label="Emergency number and live status">
+          <div class="call-card">
+            <div>
+              <span class="cc-k"><i data-i="activity" class="sm"></i> In Emergency?</span>
+              <b>Call 108</b>
+              <small>Free • 24x7 • Ambulance</small>
+            </div>
+            <a class="cc-btn" href="tel:108" aria-label="Call 108"><i data-i="phone"></i></a>
+          </div>
+          <div class="status-card">
+            <h3>Live System Status</h3>
+            <p class="st-state" id="sysState"><span class="dot"></span> <span>Checking…</span></p>
+            <ul class="st-list">
+              <li><i data-i="building"></i><span>Hospitals listed</span><b id="stHosp">–</b></li>
+              <li><i data-i="ambulance"></i><span>Ambulances available</span><b id="stAmb">–</b></li>
+              <li><i data-i="bed"></i><span>Beds available</span><b id="stBeds">–</b></li>
+              <li><i data-i="stethoscope"></i><span>Specialists on duty</span><b id="stDocs">–</b></li>
+            </ul>
+            <a class="st-more" href="#availability" data-tab="beds">View More Details <i data-i="arrow" class="sm"></i></a>
+            <p class="st-note" id="stNote"></p>
+          </div>
+        </aside>
+      </div>
+    </section>
+
+    <!-- ───────────── Live availability (public data from the API) ───────────── -->
+    <section class="sec avail" id="availability" aria-labelledby="avTitle">
+      <span class="anchor" id="hospitals"></span><span class="anchor" id="ambulances"></span>
       <div class="wrap">
-        <div class="stat-big"><b id="sHosp">–</b><span>hospitals connected</span></div>
-        <div class="stat-big"><b id="sIcu">–</b><span>ICU beds reported free</span></div>
-        <div class="stat-big"><b id="sDocs">–</b><span>specialists on duty now</span></div>
-        <div class="stat-big"><b id="sFresh">–</b><span>verified in the last 15 min</span></div>
-        <p class="stats-note" id="statsNote">Live from the Medreach hospital network.</p>
+        <div class="sec-head">
+          <span class="kicker">Live availability</span>
+          <h2 id="avTitle">What's available right now</h2>
+          <p>Straight from hospital dashboards and the ambulance fleet, updated live. Each figure shows when it was last verified.</p>
+        </div>
+        <div class="av-tabs" role="tablist" aria-label="Availability type">
+          <button type="button" role="tab" data-tab="ambulance" aria-selected="false"><i data-i="ambulance" class="sm"></i> Ambulances</button>
+          <button type="button" role="tab" data-tab="beds" aria-selected="true"><i data-i="bed" class="sm"></i> Hospital beds</button>
+          <button type="button" role="tab" data-tab="doctors" aria-selected="false"><i data-i="stethoscope" class="sm"></i> Doctors</button>
+          <button type="button" role="tab" data-tab="blood" aria-selected="false"><i data-i="drop" class="sm"></i> Blood</button>
+          <button type="button" role="tab" data-tab="equipment" aria-selected="false"><i data-i="monitor" class="sm"></i> Equipment</button>
+        </div>
+        <div class="av-tools">
+          <label class="av-search"><i data-i="search" class="sm"></i><input type="search" id="avSearch" placeholder="Search hospital, area or unit" aria-label="Search"></label>
+          <button type="button" class="b" id="avNear"><i data-i="pin" class="sm"></i> Nearest first</button>
+          <span class="av-live" id="avLive" hidden><span class="dot"></span> Live</span>
+        </div>
+        <p class="av-summary" id="avSummary" role="status"></p>
+        <div class="av-grid" id="avBody" role="tabpanel" aria-labelledby="avTitle"><p class="muted">Loading live data…</p></div>
+        <p class="small muted av-note" id="avNote"></p>
       </div>
     </section>
 
     <!-- ───────────── Problem ───────────── -->
-    <section class="sec">
+    <section class="sec" id="about">
       <div class="wrap">
         <div class="sec-head">
-          <span class="kicker">The problem</span>
+          <span class="kicker">About Medreach · the problem</span>
           <h2>The golden hour is lost at the wrong hospital</h2>
           <p>Families rush to the nearest hospital, find the specialist isn't there or the ICU is full, and lose precious time driving to a second one.</p>
         </div>
@@ -218,9 +325,38 @@
     </section>
   </main>
 
-  <footer class="lp-foot">
-    <div class="wrap">
-      <span>© 2026 Medreach · Built for the MPOnline Idea &amp; Innovation Hackathon</span>
+  <footer class="site-foot" id="contact">
+    <div class="wrap foot-grid">
+      <div>
+        <a class="hd-brand foot-brand" href="/"><img src="/icons/icon.svg" alt="" width="40" height="40"><span><b>Medreach</b><small>Emergency Response • Better Outcomes</small></span></a>
+        <p class="small">Right hospital, right now – confirmed before you leave home. Built for the MPOnline Idea &amp; Innovation Hackathon 2026.</p>
+      </div>
+      <div>
+        <h3>Emergency numbers</h3>
+        <ul>
+          <li><a href="tel:108"><i data-i="phone" class="sm"></i> 108 – Ambulance</a></li>
+          <li><a href="tel:112"><i data-i="phone" class="sm"></i> 112 – National emergency</a></li>
+        </ul>
+      </div>
+      <div>
+        <h3>Quick links</h3>
+        <ul>
+          <li><a href="/report">Report an emergency</a></li>
+          <li><a href="/login">Citizen login / register</a></li>
+          <li><a href="/login?role=staff">Hospital staff login</a></li>
+          <li><a href="/downloads/">Presentation &amp; documents</a></li>
+        </ul>
+      </div>
+      <div>
+        <h3>Contact the team</h3>
+        <ul>
+          <li><a href="https://github.com/prakharporwal518-collab/Medreach" rel="noopener" target="_blank"><i data-i="globe" class="sm"></i> Project on GitHub</a></li>
+          <li>Hospitals: join through your State Health Department nodal officer.</li>
+        </ul>
+      </div>
+    </div>
+    <div class="wrap foot-bottom">
+      <span>© 2026 Medreach</span>
       <span id="demoFoot">Prototype: hospital data, SMS and ambulance dispatch are simulated. Always call 108 in an emergency.</span>
     </div>
   </footer>

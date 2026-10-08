@@ -50,6 +50,8 @@ const P = {
   building: '<rect x="4" y="3" width="16" height="18" rx="1"/><path d="M9 7h1M14 7h1M9 11h1M14 11h1M9 15h1M14 15h1M10 21v-3h4v3"/>',
   search: '<circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/>',
   star: '<path d="M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1L3.2 9.5l6.1-.9z"/>',
+  monitor: '<rect x="3" y="4" width="18" height="12" rx="2"/><path d="M6.5 10h2.5l1.5-3 3 6 1.5-3h2.5"/><path d="M8 20h8M12 16v4"/>',
+  clipboard: '<rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 4V3h6v1"/><path d="M12 9v6M9 12h6"/>',
 };
 
 export function icon(name, cls = '') {

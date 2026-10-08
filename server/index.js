@@ -11,6 +11,8 @@ import { fileURLToPath } from 'node:url';
 import { createStore } from './store.js';
 import { createAuth } from './auth.js';
 import { createApi } from './api.js';
+import { createCitizenAuth } from './citizen-auth.js';
+import { createHash } from 'node:crypto';
 import { aiEnabled, aiProvider, aiTriage, aiVision, aiHandover } from './llm.js';
 import { createVault } from './vault.js';
 import { roadRoute, routingEnabled } from './routing.js';
@@ -27,10 +29,19 @@ export function productionStore() {
   return createStore({ vault: createVault(), routeFn: routingEnabled() ? roadRoute : null });
 }
 
-export function createApp(store = productionStore(), { dataMode = DATA_MODE, limits = DEFAULT_LIMITS } = {}) {
+// Citizen tokens and Aadhaar references are keyed from SEHAT_DATA_KEY, so they
+// stay valid across restarts; without it a random key is used per start.
+export function citizenSecret(dataKey = process.env.SEHAT_DATA_KEY) {
+  return dataKey ? createHash('sha256').update(`medreach-citizen-v1|${dataKey}`).digest() : null;
+}
+
+export function createApp(store = productionStore(), {
+  dataMode = DATA_MODE, limits = DEFAULT_LIMITS,
+  citizenAuth = createCitizenAuth({ demoMode: dataMode === 'demo', secret: citizenSecret() }),
+} = {}) {
   const auth = createAuth({ demoMode: dataMode === 'demo', audit: store.audit });
   const api = createApi({
-    store, auth, dataMode,
+    store, auth, dataMode, citizenAuth,
     ai: { enabled: aiEnabled, triage: aiTriage, vision: aiVision, handover: aiHandover },
   });
 
@@ -97,6 +108,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     console.log(`   Citizen app:      http://localhost:${port}/`);
     console.log(`   Hospital console: http://localhost:${port}/hospital`);
     console.log(`   Data mode:        ${DATA_MODE === 'demo' ? 'DEMO – simulated hospital data, OTP shown on screen' : 'LIVE – staff-verified data only'}`);
+    console.log(`   Citizen sign-in:  ${DATA_MODE === 'demo' ? 'Aadhaar + OTP (simulated UIDAI, OTP shown on screen)' : 'Aadhaar + OTP needs a licensed AUA/KUA provider – not connected'}`);
     console.log(`   Generative AI:    ${aiEnabled() ? `${aiProvider()} enabled` : 'off (set GEMINI_API_KEY or ANTHROPIC_API_KEY) – using offline engines'}`);
     console.log(`   Road routing:     ${routingEnabled() ? 'OSRM (OpenStreetMap roads)' : 'off – straight lines'}`);
     console.log(`   Data encryption:  AES-256-GCM, ${process.env.SEHAT_DATA_KEY ? 'key from SEHAT_DATA_KEY' : 'random key per start (set SEHAT_DATA_KEY to keep one)'}\n`);

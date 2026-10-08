@@ -89,3 +89,42 @@ test('staff account locks after repeated wrong OTPs', async () => {
   const { demoOtp } = auth.requestOtp('bansal', 'BANSAL-ED01');
   assert.throws(() => auth.verifyOtp('bansal', 'BANSAL-ED01', demoOtp), /locked/);
 });
+
+test('audit log is hash-chained: editing, deleting or reordering an entry is detected', async () => {
+  const { sha256 } = await import('../shared/sha256.js');
+  const { createHash } = await import('node:crypto');
+  assert.equal(sha256('Medreach'), createHash('sha256').update('Medreach').digest('hex'));
+  const store = createStore({ simulatedResponseMs: 50 });
+  store.audit({ hospitalId: 'bansal', staffId: 'BANSAL-ED01', action: 'login.success' });
+  store.updateHospitalStatus('bansal', { beds: { icu: { free: 1 } } }, { staffId: 'BANSAL-RM01', name: 'R', role: 'resource' });
+  store.audit({ hospitalId: 'bansal', staffId: 'BANSAL-ED01', action: 'logout' });
+  const ok = store.verifyAudit();
+  assert.equal(ok.ok, true);
+  assert.equal(ok.entries, 3);
+  const log = store.auditFor('*').reverse(); // oldest first
+  assert.throws(() => { log[1].result = 'ICU beds free: 9'; }, TypeError); // entries are frozen
+  const edited = log.map((e, i) => (i === 1 ? { ...e, result: 'ICU beds free: 9' } : e));
+  assert.deepEqual(store.verifyAudit(edited, '0'.repeat(64)), { ok: false, entries: 3, brokenAt: 2, head: null });
+  assert.equal(store.verifyAudit([log[0], log[2]], '0'.repeat(64)).ok, false); // deleted
+  assert.equal(store.verifyAudit([log[1], log[0], log[2]], '0'.repeat(64)).ok, false); // reordered
+  store.stop();
+});
+
+test('staff sessions are stored hashed; hospital figures are bounded', async () => {
+  const { createAuth } = await import('../server/auth.js');
+  const auth = createAuth({ demoMode: true, audit: () => {} });
+  const { demoOtp } = auth.requestOtp('bansal', 'BANSAL-ED01');
+  const { token } = auth.verifyOtp('bansal', 'BANSAL-ED01', demoOtp);
+  assert.equal(auth.session(token).staffId, 'BANSAL-ED01');
+  assert.equal(auth.session(token.slice(0, -1) + (token.endsWith('a') ? 'b' : 'a')), null);
+  assert.equal(auth.session(undefined), null);
+  auth.logout(token);
+  assert.equal(auth.session(token), null);
+
+  const store = createStore({ simulatedResponseMs: 50 });
+  const h = store.updateHospitalStatus('bansal', { erQueue: 1e9, ventilatorsFree: -5, onDuty: ['cardiology', 'cardiology'] });
+  assert.equal(h.status.erQueue, 500);
+  assert.equal(h.status.ventilatorsFree, 0);
+  assert.deepEqual(h.status.onDuty, ['cardiology']);
+  store.stop();
+});

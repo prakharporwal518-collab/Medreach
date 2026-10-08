@@ -29,7 +29,9 @@ Medreach handles sensitive data: location, emergency descriptions, patient ident
 | **Staff authentication** | Hospital ID + Staff ID + 6-digit OTP (5 min, single use, max 5 attempts). The same response is given for unknown IDs, so staff IDs can't be probed. | `server/auth.js` |
 | **Role-based access** | Nodal Officer / Emergency Desk / Resource Manager / State Admin, enforced on the server and reflected in the UI. | `shared/roles.js`, `api.js` |
 | **Session scope** | 8-hour sessions bound to one hospital; cross-hospital actions return 403 and are logged. | `auth.js` `require` |
-| **Audit trail** | Every login, OTP request, status change (with before → after), referral decision and denied access is recorded with who, role and time. | `store.js` `audit` |
+| **Audit trail** | Every login, OTP request, status change (with before → after), referral decision and denied access is recorded with who, role and time. Entries are hash-chained (SHA-256), so any edit, deletion or reordering is detected; the audit page shows the check. | `store.js` `audit`, `verifyAudit` |
+| **Citizen identity** | Aadhaar + OTP to the Aadhaar-linked mobile, with consent. The Aadhaar number is never stored: only a keyed HMAC reference and the last 4 digits. OTP limits and lockout. Simulated UIDAI in demo mode. | `server/citizen-auth.js`, `shared/aadhaar.js` |
+| **Session secrets** | Staff session tokens are stored only as SHA-256 hashes; citizen sessions are HMAC-signed tokens. | `auth.js`, `citizen-auth.js` |
 | **Retention / auto-expiry** | 24 h after hand-over: patient details, raw text, contact, photo description and handover note are deleted, and location is coarsened. | `store.js` `purge` |
 | **Honest labelling** | DEMO banner; "simulated" on ambulance and simulated hospital responses; data source on every figure. | UI |
 | **Basic hardening** | `nosniff`, `no-referrer`, `SAMEORIGIN`, no `x-powered-by`, JSON size limit, HTML escaping of all user text. | `server/index.js` |
@@ -40,7 +42,7 @@ Tests cover consent, masking, the track view, token checks, RBAC, OTP brute-forc
 
 - **Encryption in transit:** HTTPS/TLS 1.2+ everywhere, with HSTS.
 - **Encryption at rest:** encrypted Postgres (disk and column-level for health fields); keys in a KMS; hosting in India (MeitY-empanelled cloud).
-- **Identity:** staff registry synced with hospital HR / state records; SMS OTP via a government SMS gateway; optional device binding; admin approval for new staff.
+- **Identity:** citizens: Aadhaar OTP through a licensed AUA/KUA (or DigiLocker / ABHA login), with an Aadhaar Data Vault if numbers ever need to be kept; staff registry synced with hospital HR / state records; SMS OTP via a government SMS gateway; optional device binding; admin approval for new staff.
 - **ABDM integration:** fetch ABHA-linked records only through the ABDM consent manager, instead of scanning cards.
 - **DPDP Act 2023:** a notice in Hindi and English, purpose limitation (emergency care only), rights to access and erasure, a Data Protection Impact Assessment, and breach reporting.
 - **Operational security:** rate limiting, WAF, centralised tamper-evident audit logs, periodic access reviews, and a penetration test before go-live.

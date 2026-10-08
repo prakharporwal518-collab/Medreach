@@ -472,6 +472,9 @@ function freshBadge(f) {
   return `<span class="badge fresh-${f.level}" title="${esc(l.text)}">${l.icon} ${esc(l.text)}</span>`;
 }
 
+// Match score bands shown on each hospital card (full breakdown under "what does it mean?").
+const scoreBand = (n) => (n >= 75 ? 'hi' : n >= 55 ? 'mid' : 'lo');
+
 function hospitalCard(o, extraClass = '') {
   const s = t();
   const h = o.hospital;
@@ -490,7 +493,7 @@ function hospitalCard(o, extraClass = '') {
       <div class="kpis">
         <div class="kpi"><b>${o.etaMin}</b><span>${s.min} ${s.eta}</span></div>
         <div class="kpi"><b>${o.bed.freeNow}</b><span>${o.bedType.toUpperCase()} ${s.reported}</span></div>
-        <div class="kpi"><b>${o.capacityVerified ? `${Math.round(o.bed.probability * 100)}%` : '?'}</b><span>${s.bedProb}</span></div>
+        <div class="kpi match ${scoreBand(o.score)}" title="${esc(s.scoreLabel(o.score))}"><b>${o.score}<small>/100</small></b><span>${s.matchQuality[scoreBand(o.score)]}</span></div>
         <div class="kpi"><b>${o.erWaitMin}</b><span>${s.min} ${s.erWait}</span></div>
       </div>
       <h4 class="why">${s.whyThis}</h4>

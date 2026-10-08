@@ -36,41 +36,35 @@
         </button>
       </div>
 
-      <!-- ───────── Citizen ───────── -->
+      <!-- ───────── Citizen: Aadhaar + OTP ───────── -->
       <section id="citizenBox">
-        <div class="tabs2" role="tablist">
-          <button type="button" role="tab" id="tabSignin" aria-selected="true">Sign in</button>
-          <button type="button" role="tab" id="tabRegister" aria-selected="false">Create account</button>
-        </div>
+        <div class="note-box aadhaar-note"><i data-i="idcard" class="sm"></i><span>Sign in or register with <b>Aadhaar + OTP</b>. One verified account per person, so fake accounts can't be created.</span></div>
 
-        <form id="signinForm" novalidate>
-          <label class="field"><span>Mobile number <b>*</b></span>
-            <span class="input"><i data-i="phone" class="sm"></i><input id="siPhone" inputmode="tel" autocomplete="tel" placeholder="+91 98765 43210" required></span></label>
-          <label class="field"><span>Password <b>*</b></span>
-            <span class="input"><i data-i="lock" class="sm"></i><input id="siPass" type="password" autocomplete="current-password" placeholder="••••••••" required><button type="button" class="eye" data-toggle="siPass" aria-label="Show password"><i data-i="eye" class="sm"></i></button></span></label>
-          <p class="form-error" id="siError" role="alert"></p>
-          <button class="b primary lg block" type="submit">Sign in to Citizen Portal <i data-i="arrow" class="sm"></i></button>
+        <form id="aadhaarForm" novalidate>
+          <label class="field"><span>Aadhaar number <b>*</b></span>
+            <span class="input"><i data-i="idcard" class="sm"></i><input id="aadhaar" inputmode="numeric" autocomplete="off" spellcheck="false" placeholder="XXXX XXXX XXXX" maxlength="14" required></span></label>
+          <div id="demoIds" class="hidden" style="margin:-.3rem 0 .9rem">
+            <span class="small muted">Demo Aadhaar numbers (fictional people):</span>
+            <div class="row" id="demoIdList" style="gap:.35rem;margin-top:.3rem"></div>
+          </div>
+          <label class="row small consent-row">
+            <input type="checkbox" id="aaConsent">
+            <span>I agree that Medreach verifies my Aadhaar with UIDAI using an OTP sent to my <b>Aadhaar-linked mobile</b>, only to confirm who I am. My Aadhaar number is never stored.</span>
+          </label>
+          <p class="form-error" id="aaError" role="alert"></p>
+          <button class="b primary lg block" id="aaBtn" type="submit">Send OTP to Aadhaar-linked mobile <i data-i="arrow" class="sm"></i></button>
         </form>
 
-        <form id="registerForm" class="hidden" novalidate>
-          <label class="field"><span>Full name <b>*</b></span>
-            <span class="input"><i data-i="user" class="sm"></i><input id="rgName" autocomplete="name" placeholder="e.g. Prashant Kumar" required></span></label>
-          <div class="grid-2">
-            <label class="field"><span>Email address</span>
-              <span class="input"><i data-i="mail" class="sm"></i><input id="rgEmail" type="email" autocomplete="email" placeholder="you@example.com"></span></label>
-            <label class="field"><span>Mobile number <b>*</b></span>
-              <span class="input"><i data-i="phone" class="sm"></i><input id="rgPhone" inputmode="tel" autocomplete="tel" placeholder="+91 98765 43210" required></span></label>
-            <label class="field"><span>Password <b>*</b></span>
-              <span class="input"><i data-i="lock" class="sm"></i><input id="rgPass" type="password" autocomplete="new-password" placeholder="min 8 characters" required><button type="button" class="eye" data-toggle="rgPass" aria-label="Show password"><i data-i="eye" class="sm"></i></button></span></label>
-            <label class="field"><span>Confirm password <b>*</b></span>
-              <span class="input"><i data-i="lock" class="sm"></i><input id="rgPass2" type="password" autocomplete="new-password" placeholder="repeat password" required><button type="button" class="eye" data-toggle="rgPass2" aria-label="Show password"><i data-i="eye" class="sm"></i></button></span></label>
-          </div>
-          <label class="row small" style="align-items:flex-start;gap:.5rem;margin-bottom:.6rem;flex-wrap:nowrap">
-            <input type="checkbox" id="rgAgree" style="margin-top:.25rem">
-            <span>I understand my profile, health records and contacts are stored <b>only on this device</b> and shared with a hospital only when I raise an emergency and consent.</span>
-          </label>
-          <p class="form-error" id="rgError" role="alert"></p>
-          <button class="b primary lg block" type="submit">Register as Citizen &amp; Continue <i data-i="arrow" class="sm"></i></button>
+        <form id="aaOtpForm" class="hidden" novalidate>
+          <p class="small" id="aaSent"></p>
+          <p class="otp-demo hidden" id="aaDemo"></p>
+          <label class="field hidden" id="aaNameField"><span>Full name as printed on your Aadhaar <b>*</b></span>
+            <span class="input"><i data-i="user" class="sm"></i><input id="aaName" autocomplete="name" maxlength="60" placeholder="e.g. Prashant Kumar"></span></label>
+          <label class="field"><span>6-digit OTP <b>*</b></span>
+            <span class="input"><i data-i="shield" class="sm"></i><input id="aaOtp" inputmode="numeric" maxlength="6" autocomplete="one-time-code" placeholder="••••••" required></span></label>
+          <p class="form-error" id="aaOtpError" role="alert"></p>
+          <button class="b primary lg block" id="aaVerifyBtn" type="submit">Verify &amp; continue <i data-i="arrow" class="sm"></i></button>
+          <p class="small muted otp-links"><a href="#" id="aaChange">Change Aadhaar number</a> · <a href="#" id="aaResend">Resend OTP</a> <span id="aaResendIn"></span></p>
         </form>
       </section>
 

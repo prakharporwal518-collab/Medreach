@@ -58,11 +58,11 @@ npm run build:demo   # regenerate the single-file demo
 | Home page | `/` | Everyone | – |
 | Report emergency | `/report` | Anyone in an emergency | **None needed** (signed-in citizens get their details pre-filled) |
 | Sign in / register | `/login` | Citizen · Hospital Staff · Health Admin | Role cards, like a portal account screen |
-| Citizen dashboard | `/citizen` | Patients & families | Citizen account (mobile + password). **Report Emergency** opens the voice emergency app *inside* the dashboard (`/citizen#emergency`) |
+| Citizen dashboard | `/citizen` | Patients & families | Citizen account (**Aadhaar + OTP**). **Report Emergency** opens the voice emergency app *inside* the dashboard (`/citizen#emergency`) |
 | Hospital dashboard | `/hospital` | Authorised hospital staff | Hospital ID + Staff ID + OTP |
 
 ### Two separate portals, private from each other
-- **Citizen portal:** the account, health records, emergency contacts and case list are stored **only on the citizen's device**. The password is stored only as a salted PBKDF2 hash. The server never holds a citizen profile. Cases are followed through the read-only tracking token (status, hospital and ETA only).
+- **Citizen portal:** sign-in and registration are **Aadhaar + OTP** sent to the Aadhaar-linked mobile, so one real person has one account and fake accounts can't be created (see below). Health records, emergency contacts and the case list are stored **only on the citizen's device**. The server never holds a citizen profile. Cases are followed through the read-only tracking token (status, hospital and ETA only).
 - **Hospital portal:** the server-issued staff session is kept **per browser tab** (sessionStorage) and is bound to one hospital. Roles are enforced by the server, and every action is audit-logged.
 - **Neither portal can see into the other.** Opening `/citizen` without a citizen login redirects to sign-in, and opening `/hospital` without a staff session shows the staff sign-in gate. Staff see a patient's identity only if the family consented when raising the emergency, with IDs masked, and only for referrals sent to their hospital.
 - Staff accounts can't be self-registered, so nobody can pose as a hospital.
@@ -94,7 +94,17 @@ Optional Generative AI: `export GEMINI_API_KEY=...` (free key from [Google AI St
 - **Encryption at rest:** patient details, the emergency description and the contact's phone are kept **AES-256-GCM encrypted** in server memory (`server/vault.js`). They are decrypted only for an authorised view (that hospital's staff, after consent). Set `SEHAT_DATA_KEY` to keep one key; otherwise a random key is made at every start.
 - **Strict headers:** Content-Security-Policy (only our own scripts + the two CDNs we use), HSTS, `X-Frame-Options`, `nosniff`, `Permissions-Policy`, `Referrer-Policy`, and `Cache-Control: no-store` on every API response.
 - **Rate limits** per client on OTP, login, case creation and AI endpoints; **staff accounts lock for 15 minutes** after 10 wrong OTPs; OTPs are compared in constant time.
-- Request bodies are capped (100 KB; 8 MB only for photos), and every staff action stays in the audit log.
+- **Tamper-evident audit log:** every staff login, status change and referral decision is hash-chained (SHA-256, each entry contains the previous entry's hash). Editing, deleting or reordering any entry breaks the chain; the Nodal Officer's audit page shows the live check (`GET /api/hospitals/:id/audit/verify`).
+- **Hospital data integrity:** figures can only be changed by that hospital's signed-in staff, by role (beds: Resource Manager; ER status: Emergency Desk…); values are validated and bounded, and every change records who, when and before → after.
+- **Sessions:** staff session tokens are kept only as SHA-256 hashes, so a memory dump holds no usable session.
+- Request bodies are capped (100 KB; 8 MB only for photos).
+
+### 🪪 Citizen sign-in with Aadhaar + OTP
+- Enter the Aadhaar number (checked with the Verhoeff check digit) and give consent → an OTP goes to the **mobile linked with that Aadhaar** (shown masked, e.g. `••••••1001`) → enter the OTP → signed in. New and returning citizens use the same flow.
+- **The Aadhaar number is never stored, logged or sent back.** The server keeps only a keyed reference (HMAC-SHA256 with a server key) to recognise the same person, and the last 4 digits for display (`XXXX XXXX 1234`). The device stores that reference, the name, the masked numbers and a signed session token (30 days).
+- Protection against abuse: 3 OTP tries, at most 3 OTPs per Aadhaar per 10 minutes, a 15-minute lock after 10 wrong OTPs, and per-IP rate limits.
+- **Demo vs. real:** real Aadhaar OTP needs a licensed AUA/KUA connected to UIDAI through an ASA, which a hackathon prototype can't have. In demo mode a **simulated UIDAI** is used: the OTP is shown on screen and three fictional people (Aadhaar numbers starting `9999`) are offered as quick picks; any other valid number gets a made-up linked mobile. In live mode the server refuses citizen sign-in until a licensed provider is plugged into `server/citizen-auth.js`.
+- Reporting an emergency **never** needs a login.
 
 ---
 
@@ -268,10 +278,12 @@ shared/ (runs on server AND phone): triage · matching · predict · freshness �
 | `POST /api/cases` | citizen | Create case → returns case token + family track token (once) |
 | `POST /api/cases/:id/request` · `/transport` · `/arrived` | citizen (`X-Case-Token`) | Referral, transport, arrival |
 | `GET /api/track/:id?t=` | trusted contact | Status only, no medical data |
+| `POST /api/citizen/otp` · `/api/citizen/verify` · `GET /api/citizen/me` | citizen | Aadhaar + OTP sign-in |
+| `GET /api/ambulances` | anyone | Public fleet status (unit, type, base, free / on a call) |
 | `POST /api/auth/otp` · `/api/auth/verify` · `/api/auth/logout` | staff | Login |
 | `POST /api/hospitals/:id/cases/:caseId/respond` | staff (`referral.respond`) | Accept/decline + receiving bay |
 | `PATCH /api/hospitals/:id/status` | staff (role-dependent) | Update or confirm figures → re-verifies |
-| `GET /api/hospitals/:id/audit` | Nodal Officer / Admin | Audit log |
+| `GET /api/hospitals/:id/audit` · `/audit/verify` | Nodal Officer / Admin | Audit log and its hash-chain check |
 | `GET /api/stream/...` | per token | Live updates (SSE) |
 
 | Env var | Default | Meaning |
@@ -292,7 +304,7 @@ shared/ (runs on server AND phone): triage · matching · predict · freshness �
 
 ## 3-minute demo script
 
-0. Open the **home page** (`/`). Show the live network stats, the 7-step flow and the two separate portals. Then **Citizen login → Create account** on the phone.
+0. Open the **home page** (`/`). Show the live network stats, the 7-step flow and the two separate portals. Then **Login / Register** on the phone: pick the demo Aadhaar *Ramesh Kumar*, tick consent, enter the OTP shown.
 1. **Hospital dashboard:** `/login` → **Hospital Staff** → *Bansal Hospital → BANSAL-ED01 → OTP* (shown on screen in demo). Point at the KPI tiles, *"Updated by / Time / Data source"* and the **DEMO** banner.
 2. **Phone:** say *"Papa ko seene mein dard hai, pasina aa raha hai, 62 saal"*. The app shows *"may indicate: Heart attack · CRITICAL · needs cardiologist + ICU"*. Open **How was this decided?**: AI → requirements → deterministic engine.
 3. **Find hospitals.** Walk through one **Why this hospital?** checklist, the 🟢/🟡/🔴 freshness badges (Siddhanta 🟡, People's 🔴 excluded anyway: cardiologist off duty), and tap **Match score → what does it mean?**

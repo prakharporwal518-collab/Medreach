@@ -1,7 +1,8 @@
 // Hospital staff authentication: Hospital ID + Staff ID + OTP → session.
 //
 //   • OTP: 6 digits, valid 5 minutes, max 5 attempts, single use
-//   • Session token: random 32 bytes, valid 8 hours, bound to ONE hospital
+//   • Session token: random 32 bytes, valid 8 hours, bound to ONE hospital;
+//     only its SHA-256 is kept, so a memory dump holds no usable session
 //   • Every login attempt is written to the audit log
 //
 // Prototype note: there is no SMS gateway, so in DEMO data mode the OTP is
@@ -10,6 +11,7 @@
 
 import { STAFF } from './data/staff.js';
 import { ROLES, can } from '../shared/roles.js';
+import { sha256 } from '../shared/sha256.js';
 
 const OTP_TTL_MS = 5 * 60 * 1000;
 const SESSION_TTL_MS = 8 * 60 * 60 * 1000;
@@ -23,7 +25,7 @@ const fail = (status, message) => { throw Object.assign(new Error(message), { st
 
 export function createAuth({ staff = STAFF, demoMode = true, audit = () => {}, now = () => Date.now() } = {}) {
   const otps = new Map();     // `${hospitalId}|${staffId}` -> { code, expires, attempts }
-  const sessions = new Map(); // token -> { staff, expires }
+  const sessions = new Map(); // sha256(token) -> { staff, expires }
   const failures = new Map(); // `${hospitalId}|${staffId}` -> { count, since } – account lockout
   const LOCK_AFTER = 10;
   const LOCK_MS = 15 * 60 * 1000;
@@ -82,15 +84,16 @@ export function createAuth({ staff = STAFF, demoMode = true, audit = () => {}, n
     const token = randomHex(32);
     const expires = now() + SESSION_TTL_MS;
     const who = { staffId: s.staffId, hospitalId: s.hospitalId, name: s.name, role: s.role, roleLabel: ROLES[s.role].label };
-    sessions.set(token, { staff: who, expires });
+    sessions.set(sha256(token), { staff: who, expires });
     audit({ ...who, action: 'login.success' });
     return { token, staff: who, expiresAt: new Date(expires).toISOString(), permissions: ROLES[s.role].can };
   }
 
   function session(token) {
-    const s = token && sessions.get(token);
+    const key = typeof token === 'string' && token ? sha256(token) : null;
+    const s = key && sessions.get(key);
     if (!s) return null;
-    if (now() > s.expires) { sessions.delete(token); return null; }
+    if (now() > s.expires) { sessions.delete(key); return null; }
     return s.staff;
   }
 
@@ -107,7 +110,7 @@ export function createAuth({ staff = STAFF, demoMode = true, audit = () => {}, n
 
   function logout(token) {
     const staff = session(token);
-    sessions.delete(token);
+    if (typeof token === 'string' && token) sessions.delete(sha256(token));
     if (staff) audit({ ...staff, action: 'logout' });
   }
 
