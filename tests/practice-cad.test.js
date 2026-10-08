@@ -122,3 +122,24 @@ test('settings with stray spaces, quotes or capitals still work; status says wha
   } finally { close(); }
   void s2;
 });
+
+test('dispatcher key: pasted with name, quotes or spaces still works; a wrong key says why', async () => {
+  const { cleanKey } = await import('../server/practice-cad.js');
+  assert.equal(cleanKey(`SEHAT_EMS_SECRET=${SECRET}`), SECRET);
+  assert.equal(cleanKey(` "${SECRET}" \n`), SECRET);
+  assert.equal(cleanKey(`sehat_ems_secret: '${SECRET}'`), SECRET);
+
+  const { base, close } = await boot({ SEHAT_PRACTICE_CAD_ASSIGN_MS: '60000', SEHAT_DATA_KEY: 'f'.repeat(64) });
+  try {
+    const check = (key) => fetch(`${base}/api/practice-cad/key-check`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key }) });
+    assert.equal((await check(`SEHAT_EMS_SECRET=${SECRET}`)).status, 200);
+    const wrongLen = await check('abc');
+    assert.equal(wrongLen.status, 401);
+    assert.deepEqual(await wrongLen.json(), { ok: false, reason: 'mismatch', length: 3, expectedLength: SECRET.length });
+    assert.equal((await (await check('f'.repeat(64))).json()).reason, 'other:SEHAT_DATA_KEY');
+    assert.equal((await (await check('')).json()).reason, 'empty');
+    // The real actions accept the same forgiving format.
+    const r = await fetch(`${base}/api/practice-cad/incidents/NOPE/cancel`, { method: 'POST', headers: { 'X-Dispatcher-Key': ` "${SECRET}" ` } });
+    assert.equal(r.status, 404);
+  } finally { close(); }
+});
