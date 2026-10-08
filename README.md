@@ -84,7 +84,24 @@ Every dashboard page that deals with a place has a **LIVE** map. Markers move an
 
 Optional Generative AI: `export GEMINI_API_KEY=...` (free key from [Google AI Studio](https://aistudio.google.com/apikey)) or `export ANTHROPIC_API_KEY=...` before `npm start`. Everything works without it.
 
-### 📵 Works offline (rural, low-network areas)
+### 🌾 Rural areas: works at every level of signal
+| Signal | What Medreach does |
+|---|---|
+| **4G / 3G** | Full app: voice, AI understanding, live hospital status, acceptance before travel, 108 ambulance, live tracking. |
+| **Weak 2G** | Requests give up after 8–20 s instead of hanging, and fall back to the on-phone engines. **One SMS** to the Medreach number does the whole job on the server (below). |
+| **No data** | The installed app still understands the emergency, shows first aid, ranks hospitals from the last saved status, and keeps the request to send automatically. |
+| **No signal** | The screen offers **108** and **112** (emergency calls go through on any operator's tower). First aid and the map already opened stay on the phone. |
+
+**Emergency by SMS (no internet needed).** When the app can't get through, it offers *Send to Medreach by SMS*. The SMS is readable by a person and ends with a short code the server parses:
+```
+MEDREACH SOS: Heart attack / chest pain (CRITICAL) at 23.60123,77.40456
+#MR1 cardiac C 23.60123 77.40456 - en
+```
+The SMS gateway posts it to `POST /api/sms/inbound`. The server then creates the case, asks the best hospitals **one after another** until one accepts, requests the **108 / 102 ambulance**, and replies by SMS at each step (received → accepted with bay and ambulance → or "call 108" if nobody can take the patient). A hand-typed SMS with coordinates also works; without a location the reply is simply "call 108". Hospitals see these cases tagged *📩 via SMS – reporter has no internet*. The home page has a **demo SMS simulator** that runs exactly this server path.
+
+For ASHA workers and village volunteers: anyone can report for someone else with no login, in Hindi, and pregnancy cases go to **102 Janani Express**.
+
+### 📵 Works offline
 - The whole app shell, the triage rules engine and hospital matching are cached on the phone by a service worker, so the emergency is still understood and hospitals ranked (from the last saved hospital status) with **no network**.
 - A request made offline is **saved on the phone** and **sent automatically** the moment the network returns. If the app is closed, it is offered again the next time it opens.
 - Meanwhile the screen offers **Call 108**, an **SMS with your location** to your trusted contact (SMS works on 2G with no data) and navigation to the hospital. The map tiles you have already seen stay available offline.
@@ -98,6 +115,21 @@ Optional Generative AI: `export GEMINI_API_KEY=...` (free key from [Google AI St
 - **Hospital data integrity:** figures can only be changed by that hospital's signed-in staff, by role (beds: Resource Manager; ER status: Emergency Desk…); values are validated and bounded, and every change records who, when and before → after.
 - **Sessions:** staff session tokens are kept only as SHA-256 hashes, so a memory dump holds no usable session.
 - Request bodies are capped (100 KB; 8 MB only for photos).
+
+### 🚑 National ambulance services (108 / 102 / 112)
+- Medreach **hands the incident to the state 108 control room** (its Computer-Aided Dispatch system) instead of trying to run ambulances itself: pick-up location, emergency type, priority (P1 critical / P2 serious / P3), the hospital that **already accepted** and its bay, and a call-back number. No Aadhaar/ABHA numbers, and no names unless the family consented.
+- **102 Janani Express** is used for pregnancy transport, **108** for everything else; **112** is shown as the fallback that works on any network.
+- The family sees the **incident number** ("if you call 108, quote 108-MP-…") and the hospital sees the assigned unit, both updated live from the control room's status: *assigned → at patient → patient on board → arrived*.
+- If the control room can't be reached, the case says so immediately and the family is told to **call 108 now** (never a silent failure).
+- **Integration contract** (both directions HMAC-SHA256 signed, 5-minute replay window): Medreach `POST`s the incident JSON to `SEHAT_EMS_URL` and expects `{ incidentId, unit?, etaMin? }`; the control room `POST`s status updates to `/api/ems/updates`. See `server/ems.js`.
+- **In this prototype** no real 108 system is connected (that needs an agreement with the state's 108 operator / NHM MP), so a **simulated control room** assigns the nearest suitable unit from a demo fleet and is labelled *simulated* everywhere.
+
+### ⏰ 108-minute hospital update cycle
+- Every hospital updates its **full availability every 108 minutes**: ER status and queue, ER doctors on shift, specialists on duty, ICU / emergency / labour beds, equipment working, ventilators, and **blood stock by group** (A+ … AB-).
+- The **Nodal Officer appoints a Data Update Officer** (any staff member of that hospital). The officer gets the reminders and may update every field, whatever their normal role. Every appointment and update is in the audit log.
+- Reminders on the dashboard (banner, bell, sound, optional desktop notification): **10 min before**, **when due** (logged), and **15 min late** → *overdue*, escalated to the Nodal Officer.
+- Citizens' freshness follows the same clock: 🟢 under 15 min, 🟡 up to 108 min, 🔴 *availability unverified* once a hospital misses its update, and such hospitals rank lower.
+- The home page's **Blood** tab shows units per group per blood bank (search "O-").
 
 ### 🪪 Citizen sign-in with Aadhaar + OTP
 - Enter the Aadhaar number (checked with the Verhoeff check digit) and give consent → an OTP goes to the **mobile linked with that Aadhaar** (shown masked, e.g. `••••••1001`) → enter the OTP → signed in. New and returning citizens use the same flow.
@@ -129,7 +161,8 @@ We state this plainly, in the app (yellow **DEMO** banner) and here:
 | "Verified N min ago" | Seed times vary so all 🟢/🟡/🔴 levels are visible; any staff update re-verifies | Only staff updates/confirmations verify data |
 | Hospital acceptance | Real flow when staff are logged in; **simulated** desk when nobody is logged in | Always a logged-in staff member |
 | Staff & OTP | Fictional staff; OTP shown on screen (no SMS gateway) | Staff registry + SMS OTP; OTP is never returned by the API (`SEHAT_DATA_MODE=live`) |
-| Ambulance | **Simulated** units and movement | Hand-off to the authorised **108 / ambulance control room (CAD)**. Medreach does not control 108 |
+| Ambulance | **Simulated** 108/102 control room and units | Signed hand-off to the state **108 / 102 control room (CAD)** via `SEHAT_EMS_URL`; Medreach does not control 108 |
+| Emergency by SMS | Demo simulator on the home page | SMS gateway → `/api/sms/inbound`, replies via `SEHAT_SMS_SEND_URL` |
 | Trusted-contact SMS | Simulated (logged + WhatsApp share link) | SMS gateway |
 | AI | Offline rules engine; Gemini or Claude when a key is set | Gemini or Claude (with the rules engine as floor and fallback) |
 
@@ -280,6 +313,9 @@ shared/ (runs on server AND phone): triage · matching · predict · freshness �
 | `GET /api/track/:id?t=` | trusted contact | Status only, no medical data |
 | `POST /api/citizen/otp` · `/api/citizen/verify` · `GET /api/citizen/me` | citizen | Aadhaar + OTP sign-in |
 | `GET /api/ambulances` | anyone | Public fleet status (unit, type, base, free / on a call) |
+| `POST /api/ems/updates` | 108 control room (signed) | Incident status: unit, position, at patient, arrived |
+| `POST /api/sms/inbound` · `/api/sms/demo` | SMS gateway (signed) · demo | Emergency by SMS |
+| `GET /api/hospitals/:id/staff` · `PUT …/update-officer` | staff · Nodal Officer | Appoint the Data Update Officer |
 | `POST /api/auth/otp` · `/api/auth/verify` · `/api/auth/logout` | staff | Login |
 | `POST /api/hospitals/:id/cases/:caseId/respond` | staff (`referral.respond`) | Accept/decline + receiving bay |
 | `PATCH /api/hospitals/:id/status` | staff (role-dependent) | Update or confirm figures → re-verifies |
@@ -297,6 +333,11 @@ shared/ (runs on server AND phone): triage · matching · predict · freshness �
 | `SEHAT_DATA_KEY` | random per start | 64 hex chars; AES-256-GCM key for patient data |
 | `SEHAT_ROUTING` | `on` | `off` = straight-line routes |
 | `SEHAT_SIMULATE_VEHICLE` | `1` | Simulate own-vehicle drive until GPS shows movement |
+| `SEHAT_EMS_URL` · `SEHAT_EMS_SECRET` | – | Real 108/102 control room endpoint and shared signing secret (simulated without them) |
+| `SEHAT_SMS_NUMBER` | – | Number citizens SMS when offline (shows the *Send by SMS* button) |
+| `SEHAT_SMS_SECRET` | – | Authenticates the SMS gateway on `/api/sms/inbound` |
+| `SEHAT_SMS_SEND_URL` · `SEHAT_SMS_SEND_TOKEN` | – | Outbound SMS (replies, accepted, ambulance); simulated without them |
+| `SEHAT_PUBLIC_URL` | Render URL | Base URL for tracking links sent by SMS |
 | `SEHAT_RETENTION_MS` | 24 h | Delete personal/health details this long after hand-over |
 | `SEHAT_RESPONSE_TIMEOUT_MS` | `60000` | Auto-escalate if logged-in staff don't respond |
 | `SEHAT_SIM_RESPONSE_MS` | `3500` | Simulated desk delay (only when no staff logged in) |

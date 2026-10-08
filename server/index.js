@@ -13,6 +13,8 @@ import { createAuth } from './auth.js';
 import { createApi } from './api.js';
 import { createCitizenAuth } from './citizen-auth.js';
 import { createHash } from 'node:crypto';
+import { createEmsClient, emsEnabled, verifySignature } from './ems.js';
+import { createSmsSender, verifySmsRequest } from './sms.js';
 import { aiEnabled, aiProvider, aiTriage, aiVision, aiHandover } from './llm.js';
 import { createVault } from './vault.js';
 import { roadRoute, routingEnabled } from './routing.js';
@@ -26,7 +28,11 @@ const root = path.resolve(here, '..');
 export const DATA_MODE = process.env.SEHAT_DATA_MODE === 'live' ? 'live' : 'demo';
 
 export function productionStore() {
-  return createStore({ vault: createVault(), routeFn: routingEnabled() ? roadRoute : null });
+  return createStore({
+    vault: createVault(),
+    routeFn: routingEnabled() ? roadRoute : null,
+    ems: createEmsClient({ url: process.env.SEHAT_EMS_URL, secret: process.env.SEHAT_EMS_SECRET }),
+  });
 }
 
 // Citizen tokens and Aadhaar references are keyed from SEHAT_DATA_KEY, so they
@@ -38,10 +44,17 @@ export function citizenSecret(dataKey = process.env.SEHAT_DATA_KEY) {
 export function createApp(store = productionStore(), {
   dataMode = DATA_MODE, limits = DEFAULT_LIMITS,
   citizenAuth = createCitizenAuth({ demoMode: dataMode === 'demo', secret: citizenSecret() }),
+  env = process.env,
+  smsSender = createSmsSender({ url: env.SEHAT_SMS_SEND_URL, token: env.SEHAT_SMS_SEND_TOKEN }),
 } = {}) {
   const auth = createAuth({ demoMode: dataMode === 'demo', audit: store.audit });
   const api = createApi({
-    store, auth, dataMode, citizenAuth,
+    store, auth, dataMode, citizenAuth, smsSender,
+    integrations: {
+      emsLive: emsEnabled(env),
+      smsNumber: env.SEHAT_SMS_NUMBER || null,
+      publicUrl: env.SEHAT_PUBLIC_URL || env.RENDER_EXTERNAL_URL || '',
+    },
     ai: { enabled: aiEnabled, triage: aiTriage, vision: aiVision, handover: aiHandover },
   });
 
@@ -50,6 +63,34 @@ export function createApp(store = productionStore(), {
   app.set('trust proxy', 1); // real client IP behind Render's proxy, for rate limits
   app.use(securityHeaders);
   app.use(rateLimiter(limits));
+  // Integrations post signed JSON (108 control room, SMS gateway): keep the raw bytes to check the signature.
+  const signedJson = express.json({ limit: '32kb', verify: (req, _res, buf) => { req.rawBody = buf.toString('utf8'); } });
+  const sig = (req) => ({ timestamp: req.get('x-medreach-timestamp'), signature: req.get('x-medreach-signature'), rawBody: req.rawBody });
+
+  // 108/102 control room → status of an incident (unit assigned, position, at patient, arrived …).
+  app.post('/api/ems/updates', signedJson, (req, res) => {
+    if (!env.SEHAT_EMS_SECRET) return res.status(404).json({ error: 'not found' });
+    if (!verifySignature(env.SEHAT_EMS_SECRET, sig(req))) return res.status(401).json({ error: 'invalid signature' });
+    const c = store.emsUpdate(req.body || {});
+    if (!c) return res.status(404).json({ error: 'unknown incident' });
+    res.json({ ok: true, caseId: c.id, status: c.status });
+  });
+
+  // SMS gateway → an emergency SMS from a phone without mobile data.
+  app.post('/api/sms/inbound', signedJson, async (req, res) => {
+    if (!env.SEHAT_SMS_SECRET) return res.status(404).json({ error: 'not found' });
+    if (!verifySmsRequest(env.SEHAT_SMS_SECRET, { key: req.get('x-medreach-key'), ...sig(req) })) return res.status(401).json({ error: 'invalid signature' });
+    const { from, text } = req.body || {};
+    try {
+      const out = await api.smsEmergency({ from: from ? String(from).slice(0, 20) : null, text: String(text || '') });
+      let replySent = false;
+      if (smsSender.live && from) { try { replySent = (await smsSender.send(from, out.reply)).sent; } catch { /* gateway may still use the response body */ } }
+      res.json({ ok: out.ok, caseId: out.caseId || null, reply: out.reply, replySent });
+    } catch {
+      res.status(500).json({ ok: false, reply: 'MEDREACH: Something went wrong. CALL 108 NOW.' });
+    }
+  });
+
   app.use('/api/vision', express.json({ limit: '8mb' })); // only photos may be large
   app.use(express.json({ limit: '100kb' }));
 
@@ -108,6 +149,8 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     console.log(`   Citizen app:      http://localhost:${port}/`);
     console.log(`   Hospital console: http://localhost:${port}/hospital`);
     console.log(`   Data mode:        ${DATA_MODE === 'demo' ? 'DEMO – simulated hospital data, OTP shown on screen' : 'LIVE – staff-verified data only'}`);
+    console.log(`   Ambulance (108):  ${emsEnabled() ? `control room at ${new URL(process.env.SEHAT_EMS_URL).host}` : 'SIMULATED control room (set SEHAT_EMS_URL + SEHAT_EMS_SECRET)'}`);
+    console.log(`   SMS channel:      ${process.env.SEHAT_SMS_SECRET ? `inbound on, outbound ${process.env.SEHAT_SMS_SEND_URL ? 'on' : 'simulated'}${process.env.SEHAT_SMS_NUMBER ? `, number ${process.env.SEHAT_SMS_NUMBER}` : ''}` : 'off (demo simulator only)'}`);
     console.log(`   Citizen sign-in:  ${DATA_MODE === 'demo' ? 'Aadhaar + OTP (simulated UIDAI, OTP shown on screen)' : 'Aadhaar + OTP needs a licensed AUA/KUA provider – not connected'}`);
     console.log(`   Generative AI:    ${aiEnabled() ? `${aiProvider()} enabled` : 'off (set GEMINI_API_KEY or ANTHROPIC_API_KEY) – using offline engines'}`);
     console.log(`   Road routing:     ${routingEnabled() ? 'OSRM (OpenStreetMap roads)' : 'off – straight lines'}`);

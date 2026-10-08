@@ -161,8 +161,8 @@ export const HOSPITALS = [
 // so all three freshness levels are visible: 🟢 < 15 min, 🟡 15–60, 🔴 > 60.
 export const SEED_VERIFIED_MIN_AGO = {
   'aiims-bpl': 3, hamidia: 28, sultania: 6, 'kamla-nehru': 9, 'jp-hospital': 22, bmhrc: 4, bansal: 2,
-  chirayu: 11, peoples: 190, 'narmada-trauma': 5, siddhanta: 35, 'civil-bairagarh': 80, 'chc-berasia': 140,
-  'dh-sehore': 12, 'dh-raisen': 47, 'gmc-vidisha': 8,
+  chirayu: 11, peoples: 190, 'narmada-trauma': 5, siddhanta: 35, 'civil-bairagarh': 100, 'chc-berasia': 140,
+  'dh-sehore': 12, 'dh-raisen': 112, 'gmc-vidisha': 8,
 };
 
 // SIMULATED ambulance fleet, modelled on MP's 108 / Janani Express services.

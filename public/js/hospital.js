@@ -6,7 +6,7 @@
 //            only with family consent, IDs masked – enforced by the server.
 import { icon, esc, initials, hydrateIcons } from './icons.js';
 import { capLabel, checkCapability, SPECIALIST_CAPS, EQUIPMENT_CAPS } from '/shared/capabilities.js';
-import { freshness, freshnessLabel, ago } from '/shared/freshness.js';
+import { freshness, freshnessLabel, ago, updateCycle, UPDATE_CYCLE_MIN } from '/shared/freshness.js';
 import { ROLES } from '/shared/roles.js';
 import { roadKm } from '/shared/predict.js';
 import { LiveMap, statusKind, legend } from './livemap.js';
@@ -22,8 +22,14 @@ const state = {
   auth: null, hospital: null, hospitals: [], cases: new Map(), amb: new Map(), es: null,
   config: { dataMode: 'demo' }, forecast: [], audit: [], view: 'dashboard', caseTab: 'pending',
   sound: true, map: null, modalMap: null, pubES: null, lastEvent: null,
+  officer: null, staffList: [], notified: (() => { try { return sessionStorage.getItem('medreach.cycleNotified'); } catch { return null; } })(),
 };
 const canDo = (p) => Boolean(state.auth?.permissions?.includes(p));
+// The appointed Data Update Officer may edit every availability field of their hospital.
+const iAmOfficer = () => Boolean(state.officer && state.officer.staffId === state.auth?.staff.staffId && state.auth?.staff.hospitalId === state.hospital?.id);
+const canEdit = (p) => iAmOfficer() || canDo(p);
+const cycleNow = () => (state.hospital ? updateCycle(state.hospital.status.verifiedAt) : null);
+const hhmm = (iso) => (iso ? new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—');
 
 async function api(url, opts = {}) {
   const res = await fetch(url, {
@@ -132,11 +138,14 @@ async function load(id) {
   state.hospital = data.hospital;
   state.cases = new Map(data.cases.map((c) => [c.id, c]));
   state.forecast = data.forecast;
+  state.officer = data.officer || null;
   state.amb.clear();
+  try { state.staffList = await api(`/api/hospitals/${id}/staff`); } catch { state.staffList = []; }
   $('#hospName').textContent = state.hospital.name;
   await loadAudit();
   connect();
   go(location.hash.slice(1) || state.view);
+  checkCycle();
 }
 
 async function loadAudit() {
@@ -198,6 +207,8 @@ function connect() {
   });
   es.addEventListener('status', (e) => { state.hospital.status = JSON.parse(e.data).status; touch(); softRender(); });
   es.addEventListener('audit', async () => { await loadAudit(); softRender(); });
+  es.addEventListener('reminder', () => checkCycle());
+  es.addEventListener('officer', (e) => { state.officer = JSON.parse(e.data).officer; touch(); softRender(); });
 
   // Public status of neighbouring hospitals, for the live map.
   state.pubES?.close();
@@ -282,9 +293,9 @@ function verifiedBanner() {
     <div class="panel" style="padding:.8rem 1rem;border-left:4px solid var(--${f.level === 'fresh' ? 'green' : f.level === 'aging' ? 'amber' : 'red'})">
       <div class="row spread">
         <div class="small"><b>${l.icon} ${esc(l.text)}</b> · Updated by: ${by} · Time: ${when} · Source: ${s.source === 'dashboard' ? 'Hospital Emergency Dashboard' : 'Simulated demo data'}
-          <br><span class="muted">Citizens see this freshness. After 60 min without confirmation the app shows “availability unverified”.</span></div>
+          <br><span class="muted">Citizens see this freshness. After ${UPDATE_CYCLE_MIN} min without an update the app shows “availability unverified”.</span></div>
         <div class="row">
-          <button class="b sm teal" data-act="verify" ${canDo('status.verify') ? '' : 'disabled'}>${icon('check', 'sm')} Confirm figures are current</button>
+          <button class="b sm teal" data-act="verify" ${canEdit('status.verify') ? '' : 'disabled'}>${icon('check', 'sm')} Confirm figures are current</button>
           <button class="b sm" data-go="beds">${icon('bed', 'sm')} Update beds</button>
         </div>
       </div>
@@ -377,6 +388,7 @@ function viewDashboard() {
       <div><h1>Welcome, ${esc(s.name)}</h1><p>Here's what's happening at ${esc(state.hospital.name)} today · ${esc(s.roleLabel)}</p></div>
       <div style="text-align:right"><b>${now.toLocaleDateString([], { day: 'numeric', month: 'short', year: 'numeric' })}</b><br><span class="muted">${now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span></div>
     </div>
+    ${cycleBanner()}
     ${verifiedBanner()}
     ${kpis()}
     <div class="cols c21">
@@ -414,10 +426,10 @@ function caseCard(c) {
   return `
     <div class="panel" style="border-left:5px solid var(--${tr.severity === 'critical' ? 'red' : tr.severity === 'serious' ? 'amber' : 'primary'})">
       <div class="row spread"><div class="row"><span style="font-size:1.4rem">${esc(tr.icon)}</span><b>${esc(tr.label)}</b>${prio(tr.severity)}${statusPill(c)}</div><span class="small muted">${esc(c.id)} · ${reqTime(c)}</span></div>
-      <p class="small" style="margin:.5rem 0">${patientLine(c)}${p.abhaId ? ` · ABHA ${esc(p.abhaId)}` : ''}${p.ayushmanId ? ` · Ayushman ${esc(p.ayushmanId)}` : ''}${c.alone ? ' · <b class="sev-critical">🆘 patient is ALONE</b>' : ''}</p>
+      <p class="small" style="margin:.5rem 0">${patientLine(c)}${p.abhaId ? ` · ABHA ${esc(p.abhaId)}` : ''}${p.ayushmanId ? ` · Ayushman ${esc(p.ayushmanId)}` : ''}${c.alone ? ' · <b class="sev-critical">🆘 patient is ALONE</b>' : ''}${c.channel === 'sms' ? ' · <span class="pill amber">📩 via SMS – reporter has no internet</span>' : ''}</p>
       ${p.allergies?.length ? `<p class="small sev-critical"><b>Allergies:</b> ${p.allergies.map(esc).join(', ')}</p>` : ''}
       <div class="row small"><span class="pill gray">ETA ${eta(c) ?? '?'} min</span><span class="pill gray">${esc((c.bedType || 'er').toUpperCase())} bed</span>
-        <span class="pill gray">${c.transport ? (c.transport.mode === 'ambulance' ? `🚑 ${esc(c.transport.ambulance.id)} (simulated)${amb ? ` · ${esc(amb.phase.replace('_', ' '))}` : ''}` : '🚗 own vehicle') : 'transport: deciding'}</span>
+        <span class="pill gray">${c.transport ? esc(transportText(c)) : 'transport: deciding'}</span>
         ${c.handover ? `<span class="pill violet">note: ${c.handover.engine === 'claude' ? 'Claude AI' : c.handover.engine === 'gemini' ? 'Gemini AI' : 'template'}</span>` : ''}</div>
       ${c.handover ? `<pre class="sbar">${esc(c.handover.text)}</pre>` : ''}
       <p class="small muted">Needs: ${tr.required.map((x) => esc(capLabel(x))).join(', ')}</p>
@@ -467,7 +479,7 @@ function counter(key, label, value, max, ok) {
 
 function viewBeds() {
   const s = state.hospital.status;
-  const bedsOk = canDo('status.beds');
+  const bedsOk = canEdit('status.beds');
   return `
     <div class="page-head"><h1>Bed Management</h1><p>These exact numbers are what citizens and the matching engine see.</p></div>
     ${verifiedBanner()}
@@ -476,13 +488,13 @@ function viewBeds() {
         <div class="panel-head"><h3>Beds free now</h3>${bedsOk ? '' : '<span class="pill gray">Read-only for your role</span>'}</div>
         <div class="cols c3" style="gap:.7rem">
           ${Object.entries(s.beds).filter(([, b]) => b.total > 0).map(([t, b]) => counter(`bed:${t}`, `${t.toUpperCase()} beds free`, b.free, b.total, bedsOk)).join('')}
-          ${counter('erQueue', 'Patients waiting in ER', s.erQueue, undefined, canDo('status.er'))}
-          ${state.hospital.capabilities.includes('ventilator') ? counter('ventilatorsFree', 'Ventilators free', s.ventilatorsFree ?? 0, undefined, canDo('status.equipment')) : ''}
+          ${counter('erQueue', 'Patients waiting in ER', s.erQueue, undefined, canEdit('status.er'))}
+          ${state.hospital.capabilities.includes('ventilator') ? counter('ventilatorsFree', 'Ventilators free', s.ventilatorsFree ?? 0, undefined, canEdit('status.equipment')) : ''}
         </div>
       </div>
       <div class="panel">
         <h3>Emergency department</h3>
-        <label class="field"><span>Status</span><span class="input"><select id="erStatus" ${canDo('status.er') ? '' : 'disabled'}>
+        <label class="field"><span>Status</span><span class="input"><select id="erStatus" ${canEdit('status.er') ? '' : 'disabled'}>
           <option value="open" ${s.erStatus === 'open' ? 'selected' : ''}>🟢 Open – accepting</option>
           <option value="busy" ${s.erStatus === 'busy' ? 'selected' : ''}>🟠 Busy – accepting critical only</option>
           <option value="diverting" ${s.erStatus === 'diverting' ? 'selected' : ''}>🔴 Diverting – full</option></select></span></label>
@@ -494,7 +506,7 @@ function viewBeds() {
 
 function viewStaff() {
   const s = state.hospital.status;
-  const ok = canDo('status.duty');
+  const ok = canEdit('status.duty');
   const specialists = state.hospital.capabilities.filter((c) => SPECIALIST_CAPS.has(c));
   return `
     <div class="page-head"><h1>Doctors &amp; Staff</h1><p>Specialists on duty decide which emergencies this hospital can receive right now.</p></div>
@@ -513,7 +525,7 @@ function viewStaff() {
 
 function viewResources() {
   const s = state.hospital.status;
-  const ok = canDo('status.equipment');
+  const ok = canEdit('status.equipment');
   const equipment = state.hospital.capabilities.filter((c) => EQUIPMENT_CAPS.has(c) && c !== 'ventilator');
   return `
     <div class="page-head"><h1>Resources</h1><p>Equipment and services – what this hospital can treat right now.</p></div>
@@ -604,11 +616,157 @@ function viewSettings() {
     </div>`;
 }
 
-const VIEWS = { dashboard: viewDashboard, cases: viewCases, queue: viewQueue, beds: viewBeds, staff: viewStaff, resources: viewResources, reports: viewReports, audit: viewAudit, profile: viewProfile, settings: viewSettings };
+// ---------------------------------------------------------------- 108-minute update cycle
+function officerText() {
+  const o = state.officer;
+  return o ? `${esc(o.name)} (${esc(o.roleLabel)})${iAmOfficer() ? ' – you' : ''}` : '<span class="muted">not appointed yet</span>';
+}
+
+function cycleBanner(full = false) {
+  const c = cycleNow();
+  if (!c) return '';
+  const s = state.hospital.status;
+  const msg = {
+    ok: `Next availability update due in <b>${c.minutesLeft} min</b> (at ${hhmm(c.dueAt)})`,
+    upcoming: `Availability update due in <b>${Math.max(1, c.minutesLeft)} min</b> (at ${hhmm(c.dueAt)}) – please get ready`,
+    due: '<b>Availability update due now</b> – citizens see “availability unverified” until you update doctors, ICU, beds, equipment and blood',
+    overdue: `<b>Availability update OVERDUE${c.minutesLeft !== null ? ` by ${-c.minutesLeft} min` : ''}</b> – citizens see “availability unverified” and this hospital ranks lower. Escalated to the Nodal Officer.`,
+  }[c.state];
+  return `
+    <div class="panel cycle ${c.state}" role="status">
+      <span class="cycle-ico">${icon('refresh')}</span>
+      <div class="grow">
+        <div>⏰ ${msg}</div>
+        <div class="small muted">108-minute cycle · last update ${s.verifiedAt ? `${hhmm(s.verifiedAt)} by ${esc(s.verifiedBy?.name || 'system')}` : 'never'} · Data Update Officer: ${officerText()}</div>
+      </div>
+      ${full ? '' : `<button class="b sm ${c.state === 'ok' ? '' : 'primary'}" data-go="update">${icon('refresh', 'sm')} Update now</button>`}
+    </div>`;
+}
+
+function numField(name, label, value, { max = 999, ok = true, hint = '' } = {}) {
+  return `<label class="field"><span>${label}${hint ? ` <small class="muted">${hint}</small>` : ''}</span><span class="input"><input type="number" inputmode="numeric" name="${name}" min="0" max="${max}" step="1" value="${Number(value) || 0}" ${ok ? '' : 'disabled'} required></span></label>`;
+}
+
+function viewUpdate() {
+  const h = state.hospital;
+  const s = h.status;
+  const ro = (p) => (canEdit(p) ? '' : ' <span class="pill gray">read-only for your role</span>');
+  const specialists = h.capabilities.filter((c) => SPECIALIST_CAPS.has(c));
+  const equipment = h.capabilities.filter((c) => EQUIPMENT_CAPS.has(c) && c !== 'ventilator');
+  const anyEdit = ['status.er', 'status.beds', 'status.duty', 'status.equipment', 'status.blood'].some(canEdit);
+  const nodal = canDo('officer.appoint') && state.auth.staff.hospitalId === h.id;
+  const notif = 'Notification' in window ? Notification.permission : 'unsupported';
+  return `
+    <div class="page-head"><h1>108-minute availability update</h1><p>Every ${UPDATE_CYCLE_MIN} minutes the appointed Data Update Officer confirms everything citizens, 108 and the matching engine rely on.</p></div>
+    ${cycleBanner(true)}
+    <div class="cols c21">
+      <form class="panel upd-form" id="fullUpdate" novalidate>
+        <h3>1 · Emergency department${ro('status.er')}</h3>
+        <div class="upd-grid">
+          <label class="field"><span>ER status</span><span class="input"><select name="erStatus" ${canEdit('status.er') ? '' : 'disabled'}>
+            <option value="open" ${s.erStatus === 'open' ? 'selected' : ''}>🟢 Open</option>
+            <option value="busy" ${s.erStatus === 'busy' ? 'selected' : ''}>🟠 Busy</option>
+            <option value="diverting" ${s.erStatus === 'diverting' ? 'selected' : ''}>🔴 Diverting</option></select></span></label>
+          ${numField('erQueue', 'Patients waiting in ER', s.erQueue, { max: 500, ok: canEdit('status.er') })}
+          ${numField('erDoctors', 'ER doctors on shift', s.erDoctors, { max: 200, ok: canEdit('status.duty') })}
+        </div>
+        <h3>2 · Beds free now${ro('status.beds')}</h3>
+        <div class="upd-grid">${Object.entries(s.beds).filter(([, b]) => b.total > 0).map(([t, b]) => numField(`bed:${t}`, t === 'icu' ? 'ICU free' : `${t[0].toUpperCase()}${t.slice(1)} free`, b.free, { max: b.total, ok: canEdit('status.beds'), hint: `of ${b.total}` })).join('')}</div>
+        <h3>3 · Doctors / specialists on duty${ro('status.duty')}</h3>
+        <div class="check-grid">${specialists.map((c) => `<label class="check"><input type="checkbox" name="duty" value="${c}" ${s.onDuty.includes(c) ? 'checked' : ''} ${canEdit('status.duty') ? '' : 'disabled'}> ${esc(capLabel(c))}</label>`).join('') || '<span class="muted small">No specialist services registered.</span>'}</div>
+        <h3>4 · Equipment &amp; ventilators${ro('status.equipment')}</h3>
+        <div class="check-grid">${equipment.map((c) => `<label class="check"><input type="checkbox" name="equip" value="${c}" ${s.equipmentDown.includes(c) ? '' : 'checked'} ${canEdit('status.equipment') ? '' : 'disabled'}> ${esc(capLabel(c))} working</label>`).join('') || '<span class="muted small">No major equipment registered.</span>'}</div>
+        ${h.capabilities.includes('ventilator') ? `<div class="upd-grid">${numField('ventilatorsFree', 'Ventilators free', s.ventilatorsFree ?? 0, { max: 500, ok: canEdit('status.equipment') })}</div>` : ''}
+        ${s.blood ? `
+        <h3>5 · Blood bank stock (units)${ro('status.blood')}</h3>
+        <div class="upd-grid blood">${Object.entries(s.blood).map(([g, n]) => numField(`blood:${g}`, `${g}${n < 3 ? ' <span class="pill red">low</span>' : ''}`, n, { max: 999, ok: canEdit('status.blood') })).join('')}</div>` : ''}
+        <div class="row" style="margin-top:.6rem;gap:.8rem">
+          <button class="b primary lg" type="submit" ${anyEdit ? '' : 'disabled'}>${icon('check', 'sm')} Submit full update</button>
+          <span class="small muted">Citizens and 108 see it immediately. The next update is due ${UPDATE_CYCLE_MIN} min later.</span>
+        </div>
+      </form>
+      <div>
+        <div class="panel">
+          <h3>${icon('user', 'sm')} Data Update Officer</h3>
+          <p>${officerText()}</p>
+          ${state.officer ? `<p class="small muted">Appointed ${hhmm(state.officer.appointedAt)}${state.officer.appointedBy ? ` by ${esc(state.officer.appointedBy.name)}` : ''}. Gets the reminders and may update every field above.</p>` : '<p class="small muted">The Nodal Officer appoints one staff member to keep these figures current every 108 minutes.</p>'}
+          ${nodal ? `
+            <label class="field"><span>Appoint</span><span class="input"><select id="officerPick">
+              <option value="">— none —</option>
+              ${state.staffList.map((m) => `<option value="${esc(m.staffId)}" ${state.officer?.staffId === m.staffId ? 'selected' : ''}>${esc(m.name)} · ${esc(m.roleLabel)}</option>`).join('')}
+            </select></span></label>
+            <button class="b teal" type="button" id="appointBtn">${icon('check', 'sm')} Save appointment</button>` : ''}
+        </div>
+        <div class="panel" style="margin-top:1rem">
+          <h3>${icon('bell', 'sm')} Reminders</h3>
+          <ul class="small muted" style="padding-left:1.1rem;margin:.3rem 0 .8rem">
+            <li>10 min before the update is due</li>
+            <li>When it is due (also written to the audit log)</li>
+            <li>15 min late: overdue, escalated to the Nodal Officer, and citizens see “unverified”</li>
+          </ul>
+          <button class="b sm" type="button" id="notifyBtn" ${notif === 'granted' || notif === 'unsupported' || notif === 'denied' ? 'disabled' : ''}>${icon('bell', 'sm')} ${notif === 'granted' ? 'Desktop notifications on' : notif === 'denied' ? 'Notifications blocked in browser' : notif === 'unsupported' ? 'Notifications not supported' : 'Turn on desktop notifications'}</button>
+        </div>
+      </div>
+    </div>`;
+}
+
+async function submitFullUpdate(form) {
+  const f = new FormData(form);
+  const s = state.hospital.status;
+  const num = (k) => Number(f.get(k));
+  const patch = {};
+  if (canEdit('status.er')) { patch.erStatus = f.get('erStatus'); patch.erQueue = num('erQueue'); }
+  if (canEdit('status.duty')) { patch.erDoctors = num('erDoctors'); patch.onDuty = f.getAll('duty'); }
+  if (canEdit('status.beds')) patch.beds = Object.fromEntries(Object.keys(s.beds).filter((t) => f.has(`bed:${t}`)).map((t) => [t, { free: num(`bed:${t}`) }]));
+  if (canEdit('status.equipment')) {
+    const working = new Set(f.getAll('equip'));
+    patch.equipmentDown = state.hospital.capabilities.filter((c) => EQUIPMENT_CAPS.has(c) && c !== 'ventilator' && !working.has(c));
+    if (f.has('ventilatorsFree')) patch.ventilatorsFree = num('ventilatorsFree');
+  }
+  if (canEdit('status.blood') && s.blood) patch.blood = Object.fromEntries(Object.keys(s.blood).map((g) => [g, num(`blood:${g}`)]));
+  const bad = Object.entries(patch).some(([, v]) => typeof v === 'number' && !Number.isFinite(v));
+  if (bad || [...form.querySelectorAll('input[type=number]:not(:disabled)')].some((i) => !i.checkValidity())) {
+    toast('Please enter whole numbers within the limits shown'); return;
+  }
+  await patchStatus(patch);
+  const c = cycleNow();
+  if (c?.state === 'ok') toast(`✅ Full update submitted – next one due at ${hhmm(c.dueAt)}`);
+}
+
+// Remind once per stage of each cycle (toast, sound, bell, desktop notification).
+function checkCycle() {
+  const c = cycleNow();
+  if (!c) return;
+  renderBadges();
+  if (state.auth?.staff.role === 'admin' || c.state === 'ok') return;
+  const key = `${state.hospital.id}|${c.dueAt}|${c.state}`;
+  if (state.notified === key) return;
+  state.notified = key;
+  try { sessionStorage.setItem('medreach.cycleNotified', key); } catch { /* ignore */ }
+  const msg = c.state === 'upcoming' ? `Availability update due in ${Math.max(1, c.minutesLeft)} min`
+    : c.state === 'due' ? 'Availability update due now (108-minute cycle)'
+      : `Availability update OVERDUE${c.minutesLeft !== null ? ` by ${-c.minutesLeft} min` : ''} – citizens see “unverified”`;
+  toast(`⏰ ${msg}`);
+  if (c.state !== 'upcoming') beep();
+  if ('Notification' in window && Notification.permission === 'granted') {
+    try { new Notification(`Medreach – ${state.hospital.name}`, { body: `${msg}. Open “108-min Update”.`, tag: `medreach-update-${state.hospital.id}` }); } catch { /* ignore */ }
+  }
+  softRender();
+}
+
+const VIEWS = { update: viewUpdate, dashboard: viewDashboard, cases: viewCases, queue: viewQueue, beds: viewBeds, staff: viewStaff, resources: viewResources, reports: viewReports, audit: viewAudit, profile: viewProfile, settings: viewSettings };
 
 function renderBadges() {
   const n = pending().length;
-  for (const el of [$('#pendingCount'), $('#bellCount')]) { el.textContent = n; el.classList.toggle('hidden', !n); }
+  $('#pendingCount').textContent = n;
+  $('#pendingCount').classList.toggle('hidden', !n);
+  const c = cycleNow();
+  const due = Boolean(c && ['due', 'overdue'].includes(c.state));
+  const bell = n + (due ? 1 : 0);
+  $('#bellCount').textContent = bell;
+  $('#bellCount').classList.toggle('hidden', !bell);
+  const u = $('#updateDue');
+  if (u) { u.textContent = due ? '!' : c?.state === 'upcoming' ? `${Math.max(1, c.minutesLeft)}m` : ''; u.classList.toggle('hidden', !c || c.state === 'ok'); u.classList.toggle('warn', c?.state === 'upcoming'); }
 }
 
 function render() {
@@ -623,6 +781,19 @@ function render() {
   if (state.view === 'queue') drawMap('#qMap');
   if (state.view === 'cases') drawMap('#cMap');
   if (state.view === 'beds') $('#erStatus').onchange = (e) => patchStatus({ erStatus: e.target.value });
+  if (state.view === 'update') {
+    $('#fullUpdate').onsubmit = (e) => { e.preventDefault(); submitFullUpdate(e.target); };
+    $('#appointBtn')?.addEventListener('click', async () => {
+      try {
+        const out = await api(`/api/hospitals/${state.hospital.id}/update-officer`, { method: 'PUT', body: { staffId: $('#officerPick').value || null } });
+        state.officer = out.officer;
+        await loadAudit();
+        render();
+        toast(out.officer ? `${out.officer.name} is now the Data Update Officer` : 'Data Update Officer removed');
+      } catch (err) { toast(err.message); }
+    });
+    $('#notifyBtn')?.addEventListener('click', async () => { try { await Notification.requestPermission(); } catch { /* ignore */ } render(); });
+  }
   if (state.view === 'settings') {
     $('#soundToggle').onchange = (e) => { state.sound = e.target.checked; };
     $('#logout2').onclick = () => logout();
@@ -635,7 +806,11 @@ function transportText(c) {
   if (!c.transport) return 'deciding';
   if (c.transport.mode !== 'ambulance') return '🚗 own vehicle';
   const a = state.amb.get(c.id);
-  return `🚑 ${c.transport.ambulance.id}${a ? ` · ${a.phase.replace('_', ' ')}` : ''}`;
+  const t = c.transport;
+  const phase = (a?.phase || t.phase || '').replace(/_/g, ' ');
+  const inc = t.incident?.id ? ` · ${t.incident.service} #${t.incident.id}` : '';
+  if (['failed', 'cancelled'].includes(t.incident?.status)) return `🚑 ${t.incident.service} control room unreachable – family told to call ${t.incident.service}`;
+  return `🚑 ${t.ambulance?.id || `${t.incident?.service || '108'} requested`}${t.simulated ? ' (simulated)' : ''}${phase ? ` · ${phase}` : ''}${inc}`;
 }
 
 function drawNeighbour(h) {
@@ -750,7 +925,12 @@ async function boot() {
   for (const b of document.querySelectorAll('.nav-item[data-view]')) b.onclick = () => go(b.dataset.view);
   $('#menuBtn').onclick = () => $('#side').classList.toggle('open');
   $('#userBtn').onclick = () => $('#userMenu').classList.toggle('hidden');
-  $('#bellBtn').onclick = () => { state.caseTab = 'pending'; go('cases'); };
+  $('#bellBtn').onclick = () => {
+    const c = cycleNow();
+    if (!pending().length && c && c.state !== 'ok') { go('update'); return; }
+    state.caseTab = 'pending';
+    go('cases');
+  };
   $('#logoutBtn').onclick = () => logout();
   $('#logoutSide').onclick = () => logout();
   window.addEventListener('hashchange', () => { const v = location.hash.slice(1); if (state.hospital && VIEWS[v] && v !== state.view) go(v); });
@@ -758,7 +938,8 @@ async function boot() {
   tick();
   setInterval(tick, 30000);
   // Freshness labels age every minute even without events.
-  setInterval(() => { if (state.hospital && ['dashboard', 'beds'].includes(state.view)) softRender(); }, 60000);
+  setInterval(() => { if (state.hospital && ['dashboard', 'beds', 'update'].includes(state.view)) softRender(); }, 60000);
+  setInterval(() => { if (state.hospital) checkCycle(); }, 30000);
 
   const [config, hospitals] = await Promise.all([api('/api/config'), api('/api/hospitals')]);
   state.config = config;

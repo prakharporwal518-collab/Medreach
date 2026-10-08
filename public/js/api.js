@@ -5,12 +5,19 @@ import { triage as localTriage } from '/shared/triage.js';
 import { rankHospitals, explain, scoreBreakdown } from '/shared/matching.js';
 
 const HOSPITAL_CACHE_KEY = 'sehat.hospitals.v1';
+const CONFIG_CACHE_KEY = 'medreach.config.v1';
+
+// On a weak rural network a request must not hang for minutes: give up after a
+// while and use the on-phone engines (or the SMS / 108 fallbacks) instead.
+const timeoutSignal = (ms) => (typeof AbortSignal !== 'undefined' && AbortSignal.timeout ? AbortSignal.timeout(ms) : undefined);
 
 async function json(url, opts = {}) {
+  const { timeout = 20000, ...rest } = opts;
   const res = await fetch(url, {
-    ...opts,
-    headers: { 'Content-Type': 'application/json', ...(opts.headers || {}) },
-    body: opts.body ? JSON.stringify(opts.body) : undefined,
+    ...rest,
+    headers: { 'Content-Type': 'application/json', ...(rest.headers || {}) },
+    body: rest.body ? JSON.stringify(rest.body) : undefined,
+    signal: timeoutSignal(timeout),
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw Object.assign(new Error(data.error || `HTTP ${res.status}`), { status: res.status });
@@ -19,13 +26,22 @@ async function json(url, opts = {}) {
 
 const isNetworkError = (e) => !e.status; // fetch() TypeError, not an HTTP error
 
+// Kept on the phone so offline mode still knows the SMS number and 108/102.
 export async function getConfig() {
-  try { return await json('/api/config'); } catch { return { ai: false, demoLocation: { lat: 23.2355, lng: 77.4005 }, offline: true }; }
+  try {
+    const cfg = await json('/api/config', { timeout: 8000 });
+    try { localStorage.setItem(CONFIG_CACHE_KEY, JSON.stringify(cfg)); } catch { /* storage blocked */ }
+    return cfg;
+  } catch {
+    let saved = null;
+    try { saved = JSON.parse(localStorage.getItem(CONFIG_CACHE_KEY)); } catch { /* ignore */ }
+    return { ai: false, demoLocation: { lat: 23.2355, lng: 77.4005 }, ...(saved || {}), offline: true };
+  }
 }
 
 export async function triage(payload) {
   try {
-    return await json('/api/triage', { method: 'POST', body: payload });
+    return await json('/api/triage', { method: 'POST', body: payload, timeout: 15000 });
   } catch (e) {
     if (!isNetworkError(e)) throw e;
     const combined = payload.visionFindings ? `${payload.text}\n${payload.visionFindings}` : payload.text;
@@ -35,7 +51,7 @@ export async function triage(payload) {
 
 export async function hospitals() {
   try {
-    const list = await json('/api/hospitals');
+    const list = await json('/api/hospitals', { timeout: 10000 });
     try { localStorage.setItem(HOSPITAL_CACHE_KEY, JSON.stringify({ at: Date.now(), list })); } catch { /* storage full/blocked */ }
     return list;
   } catch {
@@ -45,7 +61,7 @@ export async function hospitals() {
 
 export async function match(payload) {
   try {
-    return await json('/api/match', { method: 'POST', body: payload });
+    return await json('/api/match', { method: 'POST', body: payload, timeout: 12000 });
   } catch (e) {
     if (!isNetworkError(e)) throw e;
     const list = (await hospitals()).filter((h) => !(payload.excludeIds || []).includes(h.id));

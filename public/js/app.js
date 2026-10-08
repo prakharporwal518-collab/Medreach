@@ -11,6 +11,7 @@
 //
 // USP: Emergency → Understand → Match → Verify → Accept → Transport → Confirm
 
+import { buildEmergencySms } from '/shared/sms.js';
 import { STRINGS, reasonText } from './i18n.js';
 import * as api from './api.js';
 import { listen, speak, stopSpeaking, isSpeaking, voiceInputSupported } from './voice.js';
@@ -120,7 +121,17 @@ window.addEventListener('popstate', () => {
   if (state.step >= 1 && state.step <= 3) go(state.step - 1, { fromHistory: true });
 });
 
-function setOffline(off) { $('#offline').classList.toggle('hidden', !off); }
+function setOffline(off) { $('#offline').classList.toggle('hidden', !off); checkSlowNetwork(); }
+// 2G / data saver: warn early that SMS and calls work even if the app can't get through.
+function checkSlowNetwork() {
+  const c = navigator.connection;
+  const slow = Boolean(c && navigator.onLine && (c.saveData || ['slow-2g', '2g'].includes(c.effectiveType)));
+  const el = $('#slowNet');
+  if (!el) return;
+  el.textContent = t().slowNet(Boolean(state.config?.smsNumber));
+  el.classList.toggle('hidden', !slow);
+}
+try { navigator.connection?.addEventListener?.('change', checkSlowNetwork); } catch { /* unsupported */ }
 window.addEventListener('online', () => setOffline(false));
 window.addEventListener('offline', () => setOffline(true));
 
@@ -620,9 +631,12 @@ async function requestHospital(option) {
         <p class="small redflag">${s.notConfirmedWarn}</p>
         <div class="row">
           <a class="btn danger" href="tel:108">📞 ${s.call108}</a>
-          <a class="btn" href="sms:${contactPhone}?body=${encodeURIComponent(smsText())}">✉️ ${contactPhone ? s.offlineSmsContact : s.smsLocation}</a>
+          ${state.config.smsNumber ? `<a class="btn primary" href="sms:${esc(state.config.smsNumber)}?&body=${encodeURIComponent(buildEmergencySms({ triage: state.triage, location: state.location, hospital: option.hospital, lang: state.lang }))}">📩 ${s.offlineSmsMedreach}</a>` : ''}
+          <a class="btn" href="sms:${contactPhone}?&body=${encodeURIComponent(smsText())}">✉️ ${contactPhone ? s.offlineSmsContact : s.smsLocation}</a>
           <button class="btn primary" id="navAnyway">🗺️ ${s.navigate}</button>
         </div>
+        ${state.config.smsNumber ? `<p class="small muted">📩 ${s.offlineSmsHint}</p>` : ''}
+        <p class="small muted">📶 ${s.call112Hint}</p>
       </div>`;
     $('#navAnyway').onclick = () => { state.transportMode = 'own'; showNavigation(); };
   }
@@ -756,6 +770,7 @@ function openStream(id) {
 async function onCaseUpdate(c) {
   state.caseData = { ...c, trackToken: state.trackToken };
   renderTimeline();
+  if (state.step === 6 && c.transport?.incident) renderIncident(c.transport);
   const key = `${c.status}:${c.requests.length}`;
   if (state.handled.has(key)) return;
   const s = t();
@@ -820,8 +835,8 @@ function showTransport() {
       <div class="choice-grid">
         <button class="choice ${ambulanceBetter ? 'rec' : ''}" data-mode="ambulance" type="button">
           <span class="emoji">🚑</span><b>${s.ambulance}</b>
-          <span class="small">${tr.ambulanceType === 'JANANI' ? 'Janani Express' : tr.ambulanceType} · ${s.ownEta(o.etaMin)}</span>
-          <span class="badge sim">${s.simulatedTag}</span>
+          <span class="small">${esc(s.ambServiceName(tr.ambulanceType === 'JANANI' ? '102' : '108', tr.ambulanceType))} · ${s.ownEta(o.etaMin)}</span>
+          ${state.config.ambulance?.dispatch === 'control-room' ? '' : `<span class="badge sim">${s.simulatedTag}</span>`}
           ${ambulanceBetter ? `<p class="small" style="color:var(--brand)">★ ${s.ambRec}</p>` : ''}
         </button>
         <button class="choice ${!ambulanceBetter ? 'rec' : ''}" data-mode="own" type="button">
@@ -831,7 +846,7 @@ function showTransport() {
         </button>
       </div>
       <p class="small muted" style="margin-top:.75rem">ℹ️ ${s.ambSimNote}</p>
-      <a class="btn danger block" href="tel:108" style="margin-top:.5rem">📞 ${s.call108Direct}</a>
+      <a class="btn danger block" href="tel:${tr.ambulanceType === 'JANANI' ? '102' : '108'}" style="margin-top:.5rem">📞 ${tr.ambulanceType === 'JANANI' ? s.call108Direct.replace('108', '102') : s.call108Direct}</a>
     </div>`;
   for (const b of document.querySelectorAll('[data-mode]')) {
     b.onclick = async () => {
@@ -878,6 +893,7 @@ async function showNavigation() {
         ${state.caseData ? `<button class="btn ghost" id="previewTrack" type="button">👁 ${s.trackPreview}</button>` : ''}
       </div>
     </div>
+    <div class="card incident hidden" id="incidentBox" aria-live="polite"></div>
     ${state.caseData ? `<div class="card" id="ladderBox">${ladder(state.caseData)}</div>` : `<div class="card"><p class="redflag small">${s.notConfirmedWarn}</p></div>`}
     <div class="card hidden" id="stepsCard"><ol class="steps-list" id="stepsList"></ol></div>
     <div class="card"><ul class="timeline"></ul></div>
@@ -908,11 +924,16 @@ async function showNavigation() {
     showStep(main.steps[1] || main.steps[0]);
   }
   if (tr?.mode === 'ambulance') {
-    routes.toPatient = await route(tr.from, state.location, state.lang);
-    window.L.polyline(routes.toPatient.coords, { color: '#d62839', weight: 4, dashArray: '6 8' }).addTo(navMap);
-    ambMarker = marker(navMap, tr.position, '🚑');
+    renderIncident(tr);
+    // With a real control room the unit and its position arrive later.
+    if (tr.from) {
+      routes.toPatient = await route(tr.from, state.location, state.lang);
+      window.L.polyline(routes.toPatient.coords, { color: '#d62839', weight: 4, dashArray: '6 8' }).addTo(navMap);
+    }
+    ambMarker = tr.position ? marker(navMap, tr.position, '🚑') : null;
     onAmbulance(tr);
   } else {
+    if (tr?.incident) renderIncident(tr);
     carMarker = marker(navMap, state.location, '🚗');
     if (tr) onVehicle(tr);
     followOwnVehicle();
@@ -951,11 +972,35 @@ function followOwnVehicle() {
   }, () => {}, { enableHighAccuracy: true });
 }
 
+// 108 / 102 control room: incident number, status, and "call now" if it can't be reached.
+function renderIncident(tr) {
+  const box = $('#incidentBox');
+  const inc = tr?.incident;
+  if (!box || !inc) return;
+  const s = t();
+  const svc = inc.service || '108';
+  const failed = ['failed', 'cancelled'].includes(inc.status);
+  const text = failed ? s.incidentFailed(svc)
+    : inc.status === 'no_unit' ? s.incidentNoUnit(svc)
+      : !inc.id ? s.incidentWaiting(svc)
+        : s.incidentQuote(svc, inc.id);
+  box.classList.remove('hidden');
+  box.classList.toggle('alert', failed || inc.status === 'no_unit');
+  box.innerHTML = `
+    <div class="row spread"><b>🚑 ${esc(s.incidentTitle(svc))}</b>${tr.simulated !== false && inc.channel !== 'control-room' ? `<span class="badge sim">${esc(s.incidentSim)}</span>` : ''}</div>
+    ${inc.id ? `<p style="margin:.35rem 0">${s.incidentNo}: <b class="mono">${esc(inc.id)}</b></p>` : ''}
+    <p class="small" style="margin:.2rem 0 .5rem">${esc(text)}</p>
+    <a class="btn ${failed ? 'danger' : ''} block" href="tel:${esc(svc)}">📞 ${failed ? s.call108Direct.replace('108', svc) : `${svc}`}</a>`;
+}
+
 function onAmbulance(tr) {
   if (!tr || tr.mode !== 'ambulance' || state.step !== 6) return;
   const s = t();
-  $('#etaBig').textContent = tr.etaMin;
-  $('#ambBadge').textContent = `🚑 ${tr.ambulance.id} (${s.simulatedTag}) · ${s.ambPhase[tr.phase] || ''}`;
+  renderIncident(tr);
+  if (Number.isFinite(tr.etaMin)) $('#etaBig').textContent = tr.etaMin;
+  $('#ambBadge').textContent = `🚑 ${tr.ambulance?.id || tr.incident?.service || '108'}${tr.simulated ? ` (${s.simulatedTag})` : ''} · ${s.ambPhase[tr.phase] || ''}`;
+  if (!tr.position) return;
+  if (!ambMarker && navMap) ambMarker = marker(navMap, tr.position, '🚑');
   if (!ambMarker) return;
   let pt = [tr.position.lat, tr.position.lng];
   // The server already moves the ambulance on real roads; otherwise follow our own route.
@@ -963,7 +1008,7 @@ function onAmbulance(tr) {
   if (!tr.onRoad && tr.phase === 'to_hospital' && routes.toHospital && !routes.toHospital.fallback) pt = pointAlong(routes.toHospital.coords, tr.progress);
   if (tr.phase === 'at_patient') pt = [state.location.lat, state.location.lng];
   ambMarker.setLatLng(pt);
-  if (tr.phase === 'to_patient') $('#navSub').textContent = ` · ${s.ambOnWay(tr.ambulance.id, Math.max(0, tr.etaMin - (tr.etaToHospitalMin || 0) - 2))}`;
+  if (tr.phase === 'to_patient' && tr.ambulance) $('#navSub').textContent = ` · ${s.ambOnWay(tr.ambulance.id, Math.max(0, (tr.etaMin ?? 0) - (tr.etaToHospitalMin || 0) - 2))}`;
 }
 
 // ------------------------------------------------------------------ ⑧ confirmed hospital
@@ -1005,7 +1050,7 @@ function trackHtml(d) {
       <ul class="alone-list">${steps.map(([k, label]) => `<li class="${reached(k) ? 'done' : ''}">${reached(k) ? '✅' : '⏳'} ${esc(label)}</li>`).join('')}</ul>
       ${d.hospital ? `<p>🏥 <b>${esc(d.hospital.name)}</b> · ${esc(d.hospital.area)}${d.bay ? ` · ${s.receivingBay} ${esc(d.bay)}` : ''}</p>
         <a class="btn" target="_blank" rel="noopener" href="https://www.google.com/maps/dir/?api=1&destination=${d.hospital.lat},${d.hospital.lng}">🧭 ${s.openMaps}</a>` : ''}
-      ${d.transport?.etaMin !== undefined ? `<p>🚑 ${d.transport.mode === 'ambulance' ? `${esc(d.transport.ambulance)} (${s.simulatedTag})` : s.ownVehicle} · ${s.eta} ${d.transport.etaMin} ${s.min}</p>` : ''}
+      ${d.transport ? `<p>🚑 ${d.transport.mode === 'ambulance' ? `${esc(d.transport.ambulance || d.transport.incident?.service || '108')}${d.transport.simulated ? ` (${s.simulatedTag})` : ''}` : s.ownVehicle}${Number.isFinite(d.transport.etaMin) ? ` · ${s.eta} ${d.transport.etaMin} ${s.min}` : ''}${d.transport.incident?.id ? ` · ${s.incidentNo} ${esc(d.transport.incident.id)}` : ''}</p>` : ''}
       <p class="small muted">🔒 ${s.trackNoMedical}</p>
     </div>
     <div class="card"><ul class="timeline">${d.timeline.slice().reverse().map((e) => `<li><time>${time(e.at)}</time>${esc(e.text)}</li>`).join('')}</ul></div>`;
@@ -1040,6 +1085,7 @@ async function boot() {
   // Embedded in the citizen dashboard: the dashboard already shows branding & navigation.
   if (new URLSearchParams(location.search).get('embed') === '1' || window.self !== window.top) document.body.classList.add('embedded');
   state.config = await api.getConfig();
+  checkSlowNetwork();
   applyI18n();
   if (state.config.dataMode !== 'live') $('#demoBanner').classList.remove('hidden');
   if (state.config.offline || !navigator.onLine) setOffline(true);

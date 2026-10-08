@@ -1,14 +1,36 @@
 // How fresh is a hospital's reported availability?
 //
 //   🟢 fresh  – verified by authorised hospital staff < 15 min ago
-//   🟡 aging  – verified 15–60 min ago (treat with caution)
-//   🔴 stale  – older than 60 min, or never verified → "availability unverified"
+//   🟡 aging  – verified 15–108 min ago (treat with caution)
+//   🔴 stale  – older than 108 min, or never verified → "availability unverified"
+//
+// Every hospital updates its full availability at least once per 108-minute
+// cycle (the appointed Data Update Officer is reminded on the dashboard), so
+// "stale" means the hospital missed its update.
 //
 // Stale capacity is never presented as confirmed: the matching engine lowers
 // its weight, and only an accepted referral turns it into a confirmed bed.
 
 export const FRESH_MIN = 15;
-export const STALE_MIN = 60;
+export const UPDATE_CYCLE_MIN = 108;
+export const STALE_MIN = UPDATE_CYCLE_MIN;
+export const REMIND_BEFORE_MIN = 10; // "update due in 10 min"
+export const OVERDUE_AFTER_MIN = 15; // escalate to the Nodal Officer
+
+/**
+ * Where a hospital is in its 108-minute update cycle.
+ * → { state: 'ok' | 'upcoming' | 'due' | 'overdue', dueAt (ISO | null), minutesLeft (negative = late) }
+ */
+export function updateCycle(verifiedAt, now = Date.now()) {
+  const t = verifiedAt ? Date.parse(verifiedAt) : NaN;
+  if (!Number.isFinite(t)) return { state: 'overdue', dueAt: null, minutesLeft: null };
+  const due = t + UPDATE_CYCLE_MIN * 60000;
+  const minutesLeft = Math.floor((due - now) / 60000);
+  const state = minutesLeft > REMIND_BEFORE_MIN ? 'ok'
+    : minutesLeft > 0 ? 'upcoming'
+      : minutesLeft > -OVERDUE_AFTER_MIN ? 'due' : 'overdue';
+  return { state, dueAt: new Date(due).toISOString(), minutesLeft };
+}
 
 export function freshness(verifiedAt, now = Date.now()) {
   const t = verifiedAt ? Date.parse(verifiedAt) : NaN;

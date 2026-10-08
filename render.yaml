@@ -42,6 +42,20 @@ services:
       # Optional: without it a random key is made at every start.
       - key: SEHAT_DATA_KEY
         sync: false
+      # 108 / 102 control room (CAD) – only when the state's 108 operator provides an endpoint.
+      - key: SEHAT_EMS_URL
+        sync: false
+      - key: SEHAT_EMS_SECRET
+        sync: false
+      # Emergency by SMS for areas without mobile data (needs an Indian SMS gateway, DLT-registered).
+      - key: SEHAT_SMS_NUMBER
+        sync: false
+      - key: SEHAT_SMS_SECRET
+        sync: false
+      - key: SEHAT_SMS_SEND_URL
+        sync: false
+      - key: SEHAT_SMS_SEND_TOKEN
+        sync: false
       # Real road routes from the public OSRM server (OpenStreetMap). 'off' = straight lines.
       - key: SEHAT_ROUTING
         value: "on"

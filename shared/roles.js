@@ -4,7 +4,7 @@
 export const ROLES = {
   nodal_officer: {
     label: 'Hospital Nodal Officer',
-    can: ['cases.view', 'referral.respond', 'status.er', 'status.beds', 'status.duty', 'status.equipment', 'status.verify', 'audit.view'],
+    can: ['cases.view', 'referral.respond', 'status.er', 'status.beds', 'status.duty', 'status.equipment', 'status.blood', 'status.verify', 'audit.view', 'officer.appoint'],
   },
   emergency_desk: {
     label: 'Emergency Desk Officer',
@@ -12,7 +12,7 @@ export const ROLES = {
   },
   resource_manager: {
     label: 'Resource Manager',
-    can: ['cases.view', 'status.er', 'status.beds', 'status.duty', 'status.equipment', 'status.verify'],
+    can: ['cases.view', 'status.er', 'status.beds', 'status.duty', 'status.equipment', 'status.blood', 'status.verify'],
   },
   admin: {
     label: 'State Health Admin',
@@ -24,6 +24,10 @@ export const ROLES = {
 export function roleLabel(role) {
   return ROLES[role]?.label || role;
 }
+
+// The hospital's appointed Data Update Officer may update every availability field
+// (beds, ER, doctors, equipment, blood) for that hospital, whatever their role.
+export const STATUS_PERMISSIONS = ['status.er', 'status.beds', 'status.duty', 'status.equipment', 'status.blood', 'status.verify'];
 
 /** May this staff member perform `action` on `hospitalId`? */
 export function can(staff, action, hospitalId) {

@@ -102,7 +102,7 @@
               <img src="/img/home/blood.jpg" alt="" width="278" height="148" loading="lazy">
               <span class="svc-badge red"><i data-i="drop"></i></span>
               <h3>Blood Availability</h3>
-              <p>Find hospitals with a blood bank and an open emergency.</p>
+              <p>Blood units by group in hospital blood banks near you.</p>
               <a href="#availability" data-tab="blood">Check Blood <i data-i="arrow" class="sm"></i></a>
             </article>
             <article class="svc-card">
@@ -175,6 +175,47 @@
     </section>
 
     <!-- ───────────── Problem ───────────── -->
+    <!-- ───────────── Rural: works at every level of signal ───────────── -->
+    <section class="sec alt rural" id="rural" aria-labelledby="ruralTitle">
+      <div class="wrap">
+        <div class="sec-head">
+          <span class="kicker">Built for villages</span>
+          <h2 id="ruralTitle">Works even when the network doesn't</h2>
+          <p>Many villages have only 2G, or no data at all. Medreach keeps helping at every level of signal – and never hides the call to 108.</p>
+        </div>
+        <ol class="net-ladder">
+          <li><span class="lvl l4">4G / 3G</span><h3><i data-i="wifi"></i> Full app</h3><p>Voice in Hindi or English, AI understanding, live hospital status, acceptance before travel, 108 ambulance and live tracking.</p></li>
+          <li><span class="lvl l2">Weak 2G</span><h3><i data-i="mail"></i> Lite + SMS</h3><p>Requests give up quickly instead of hanging. One SMS reaches the Medreach gateway, which asks the hospital, requests the 108 ambulance and replies by SMS.</p></li>
+          <li><span class="lvl l1">No data</span><h3><i data-i="shield"></i> Offline app</h3><p>The installed app still understands the emergency, shows first aid and ranks hospitals from the last saved status. The request is saved and sent automatically when signal returns.</p></li>
+          <li><span class="lvl l0">No signal</span><h3><i data-i="phone"></i> Call 112 / 108</h3><p>Emergency calls go through on any operator's tower. First-aid steps and the map you already opened stay on the phone.</p></li>
+        </ol>
+        <div class="rural-grid">
+          <div class="rural-card">
+            <h3>For ASHA workers, sarpanch &amp; village volunteers</h3>
+            <ul>
+              <li>Report for someone else – no login, no Aadhaar needed in an emergency.</li>
+              <li>Speak in Hindi; the app reads first aid and directions aloud.</li>
+              <li>Pregnancy emergencies go to <b>102 Janani Express</b>, everything else to <b>108</b>, with the accepting hospital already named.</li>
+              <li>The family gets a status-only SMS / link, without medical details.</li>
+              <li>Hospitals keep beds, doctors and blood updated every <b>108 minutes</b>, so the list is trustworthy even far from the city.</li>
+            </ul>
+          </div>
+          <div class="rural-card sms-sim" id="smsSim" hidden>
+            <h3><i data-i="mail" class="sm"></i> Try the SMS channel <span class="tag">demo</span></h3>
+            <p class="small muted">This is the exact SMS the app writes when there is no internet. In the demo it goes straight to our server instead of through an SMS gateway – the server then does exactly what it does for a real SMS.</p>
+            <label class="field"><span>Emergency in a village near Berasia</span><span class="input"><select id="simType">
+              <option value="cardiac">Heart attack – chest pain</option>
+              <option value="snakebite">Snake bite</option>
+              <option value="pregnancy">Pregnancy – labour pain</option>
+              <option value="trauma">Road accident</option>
+            </select></span></label>
+            <div class="sms-thread" id="simThread" aria-live="polite"></div>
+            <button class="b primary" type="button" id="simSend"><i data-i="mail" class="sm"></i> Simulate sending this SMS</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
     <section class="sec" id="about">
       <div class="wrap">
         <div class="sec-head">
@@ -344,6 +385,7 @@
           <li><a href="/report">Report an emergency</a></li>
           <li><a href="/login">Citizen login / register</a></li>
           <li><a href="/login?role=staff">Hospital staff login</a></li>
+          <li><a href="#rural">Works without internet</a></li>
           <li><a href="/downloads/">Presentation &amp; documents</a></li>
         </ul>
       </div>

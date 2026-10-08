@@ -31,6 +31,7 @@ Medreach handles sensitive data: location, emergency descriptions, patient ident
 | **Session scope** | 8-hour sessions bound to one hospital; cross-hospital actions return 403 and are logged. | `auth.js` `require` |
 | **Audit trail** | Every login, OTP request, status change (with before → after), referral decision and denied access is recorded with who, role and time. Entries are hash-chained (SHA-256), so any edit, deletion or reordering is detected; the audit page shows the check. | `store.js` `audit`, `verifyAudit` |
 | **Citizen identity** | Aadhaar + OTP to the Aadhaar-linked mobile, with consent. The Aadhaar number is never stored: only a keyed HMAC reference and the last 4 digits. OTP limits and lockout. Simulated UIDAI in demo mode. | `server/citizen-auth.js`, `shared/aadhaar.js` |
+| **Integrations** | 108 control room and SMS gateway requests are HMAC-SHA256 signed with a 5-minute replay window; the incident sent to 108 carries no Aadhaar/ABHA numbers and no names without consent. | `server/ems.js`, `server/sms.js` |
 | **Session secrets** | Staff session tokens are stored only as SHA-256 hashes; citizen sessions are HMAC-signed tokens. | `auth.js`, `citizen-auth.js` |
 | **Retention / auto-expiry** | 24 h after hand-over: patient details, raw text, contact, photo description and handover note are deleted, and location is coarsened. | `store.js` `purge` |
 | **Honest labelling** | DEMO banner; "simulated" on ambulance and simulated hospital responses; data source on every figure. | UI |
