@@ -46,12 +46,19 @@
           <div class="row"><button class="b" type="submit">Unlock actions</button><button class="b ghost hidden" type="button" id="lockBtn">Lock</button></div>
           <p class="small muted" id="keyState">Without the key you can watch; incidents are assigned automatically after a few seconds.</p>
         </form>
+        <fieldset class="pc-mode" id="modeBox">
+          <legend>Who assigns the ambulance?</legend>
+          <label><input type="radio" name="mode" value="auto"> <span><b>Automatic</b> – nearest unit after 4 seconds</span></label>
+          <label><input type="radio" name="mode" value="manual"> <span><b>Manual</b> – the incident waits for you to click <i>Assign nearest unit now</i> (auto after 2 min if nobody does)</span></label>
+          <p class="small muted" id="modeHint">Unlock with the key to change this.</p>
+        </fieldset>
+        <a class="pc-jump" href="#incidentsSec" id="jump">↓ Incident cards with <b>Assign</b> / <b>Cancel</b> buttons are below the map</a>
         <h3 style="margin-top:1rem">Fleet</h3>
         <ul class="pc-fleet" id="fleet"></ul>
       </section>
     </div>
 
-    <section class="pc-incidents">
+    <section class="pc-incidents" id="incidentsSec">
       <h2>Incidents</h2>
       <div id="incidents" class="pc-list" aria-live="polite"><p class="muted">Waiting for incidents from Medreach…</p></div>
     </section>

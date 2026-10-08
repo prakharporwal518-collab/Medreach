@@ -42,6 +42,7 @@ export function createPracticeCad({
   routeFn = null,
   demoSpeed = 15,
   autoAssignMs = 4000,
+  manualFallbackMs = 120000,
   tickMs = 2000,
   dataMode = 'demo',
   otherKeys = {},
@@ -51,6 +52,10 @@ export function createPracticeCad({
   const incidents = new Map(); // incidentId -> record
   const timers = new Set();
   let seq = 0;
+  // 'auto': the control room assigns the nearest unit after a few seconds.
+  // 'manual': incidents wait for the dispatcher; if nobody assigns within
+  // manualFallbackMs the nearest unit is sent anyway so no patient is left waiting.
+  const settings = { mode: 'auto' };
 
   const later = (fn, ms) => {
     const t = setTimeout(() => { timers.delete(t); fn(); }, ms);
@@ -124,7 +129,14 @@ export function createPracticeCad({
     note(rec, `Incident received from Medreach (${rec.priority}, ${rec.complaint.label || 'emergency'})`);
     incidents.set(rec.id, rec);
     for (const [id, r] of incidents) if (incidents.size > MAX_INCIDENTS || Date.now() - Date.parse(r.createdAt) > KEEP_MS) { close(r, 'Archived'); incidents.delete(id); }
-    later(() => assign(rec.id), autoAssignMs);
+    if (settings.mode === 'manual') {
+      rec.autoAssignAt = new Date(Date.now() + manualFallbackMs).toISOString();
+      note(rec, `Waiting for the dispatcher (auto-assign in ${Math.round(manualFallbackMs / 1000)} s if nobody does)`);
+      later(() => assign(rec.id, { by: 'auto-dispatch (no dispatcher action)' }), manualFallbackMs);
+    } else {
+      rec.autoAssignAt = new Date(Date.now() + autoAssignMs).toISOString();
+      later(() => assign(rec.id), autoAssignMs);
+    }
     return { incidentId: rec.id, status: 'received' };
   }
 
@@ -154,6 +166,7 @@ export function createPracticeCad({
     rec.toHospitalMin = Math.max(1, predictTravelMin(roadKm(rec.pickup, rec.destination), { hour, mode: 'ambulance' }).minutes);
     rec.etaMin = rec.toPatientMin + rec.toHospitalMin + 2;
     rec.assignedBy = by;
+    rec.autoAssignAt = null;
     rec.legs = { toPatient: await road(rec.position, rec.pickup), toHospital: await road(rec.pickup, rec.destination) };
     rec.phase = 'to_patient';
     rec.progress = 0;
@@ -218,7 +231,7 @@ export function createPracticeCad({
     destination: { name: r.destination.name, lat: r.destination.lat, lng: r.destination.lng, bay: r.destination.bay },
     status: r.status, phase: r.phase, closed: r.closed, unit: r.unit, position: r.closed ? null : r.position, etaMin: r.etaMin,
     path: !r.closed && r.legs ? downsample(r.phase === 'to_hospital' ? r.legs.toHospital : r.legs.toPatient, 40) : null,
-    assignedBy: r.assignedBy, delivery: r.delivery, history: r.history,
+    assignedBy: r.assignedBy, autoAssignAt: r.unit || r.closed ? null : r.autoAssignAt || null, delivery: r.delivery, history: r.history,
   });
 
   // ---------------------------------------------------------------- HTTP
@@ -253,6 +266,7 @@ export function createPracticeCad({
     if (dataMode === 'live' && !keyOk(req)) return res.status(401).json({ error: 'dispatcher key required' });
     res.json({
       practice: true,
+      settings: { ...settings },
       fleet: fleet.map(({ id, type, base, lat, lng, available }) => ({ id, type, base, lat, lng, available })),
       incidents: [...incidents.values()].reverse().map(view),
     });
@@ -264,11 +278,17 @@ export function createPracticeCad({
     await fn(rec.id);
     res.json(view(incidents.get(rec.id)));
   };
+  router.post('/settings', express.json({ limit: '2kb' }), (req, res) => {
+    if (!keyOk(req)) return res.status(401).json({ error: 'dispatcher key required' });
+    if (!['auto', 'manual'].includes(req.body?.mode)) return res.status(400).json({ error: 'mode must be auto or manual' });
+    settings.mode = req.body.mode;
+    res.json({ ...settings });
+  });
   router.post('/incidents/:id/assign', act((id) => assign(id, { by: 'dispatcher' })));
   router.post('/incidents/:id/cancel', act(cancel));
 
   return {
-    router, receive, assign, cancel, incidents, fleet,
+    router, receive, assign, cancel, incidents, fleet, settings,
     stop() { for (const t of timers) clearTimeout(t); timers.clear(); },
   };
 }
