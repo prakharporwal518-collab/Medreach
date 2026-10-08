@@ -96,7 +96,18 @@ async function load() {
     live(false, 'Off');
     $('#board').classList.add('hidden');
     $('#off').classList.remove('hidden');
-    $('#off').innerHTML = '<b>The practice control room is switched off on this server.</b> Set <code>SEHAT_PRACTICE_CAD=on</code>, <code>SEHAT_EMS_SECRET</code> and <code>SEHAT_EMS_URL=&lt;this site&gt;/api/practice-cad/incidents</code> in the server settings, then redeploy. Until then Medreach uses its built-in simulated control room.';
+    let checks = null;
+    try { checks = (await (await fetch('/api/practice-cad/status')).json()).checks; } catch { /* older server */ }
+    const want = {
+      SEHAT_PRACTICE_CAD: 'on',
+      SEHAT_EMS_SECRET: 'a long random secret',
+      SEHAT_EMS_URL: `${location.origin}/api/practice-cad/incidents`,
+    };
+    const rows = Object.entries(want).map(([k, v]) => {
+      const ok = checks ? checks[k] : null;
+      return `<li>${ok === true ? '✅' : ok === false ? '❌' : '•'} <code>${k}</code> = <code>${esc(v)}</code>${ok === false ? ' <b>← missing or wrong</b>' : ''}</li>`;
+    }).join('');
+    $('#off').innerHTML = `<b>The practice control room is switched off on this server.</b> In Render → Environment set:<ul class="pc-checks">${rows}</ul>then click <b>Save, rebuild and deploy</b> (not just “Save”). Until then Medreach uses its built-in simulated control room.`;
     return;
   }
   if (res.status === 401) { live(false, 'Key needed'); $('#incidents').innerHTML = '<p class="muted">Enter the dispatcher key to view incidents.</p>'; return; }

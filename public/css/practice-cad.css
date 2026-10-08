@@ -29,3 +29,5 @@
 .pc-actions { margin-top: .7rem; gap: .5rem; }
 .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
 @media (max-width: 900px) { .pc-grid { grid-template-columns: 1fr; } .pc-map { height: 320px; } .pc-list { grid-template-columns: 1fr; } }
+.pc-checks { margin: .6rem 0; padding-left: 1.2rem; line-height: 1.9; }
+.pc-checks code { overflow-wrap: anywhere; }

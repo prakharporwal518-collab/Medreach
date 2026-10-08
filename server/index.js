@@ -5,6 +5,7 @@
 //   Hospital console (public/hospital.html)┘                                    │         auth.js  (OTP, roles)
 //                                                                              └──────► llm.js   (Claude or Gemini)
 
+import { cleanEnv, isOn } from './env.js';
 import express from 'express';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -49,7 +50,8 @@ export function createApp(store = productionStore(), {
   smsSender = createSmsSender({ url: env.SEHAT_SMS_SEND_URL, token: env.SEHAT_SMS_SEND_TOKEN }),
 } = {}) {
   const auth = createAuth({ demoMode: dataMode === 'demo', audit: store.audit });
-  const practiceOn = env.SEHAT_PRACTICE_CAD === 'on' && Boolean(env.SEHAT_EMS_SECRET);
+  cleanEnv(env);
+  const practiceOn = isOn(env.SEHAT_PRACTICE_CAD) && Boolean(env.SEHAT_EMS_SECRET);
   const api = createApi({
     store, auth, dataMode, citizenAuth, smsSender,
     integrations: {
@@ -66,6 +68,19 @@ export function createApp(store = productionStore(), {
   app.set('trust proxy', 1); // real client IP behind Render's proxy, for rate limits
   app.use(securityHeaders);
   app.use(rateLimiter(limits));
+  // Which practice-control-room setting is missing (yes/no only – never the values).
+  app.get('/api/practice-cad/status', (_req, res) => {
+    const url = String(env.SEHAT_EMS_URL || '');
+    res.json({
+      on: practiceOn,
+      checks: {
+        SEHAT_PRACTICE_CAD: isOn(env.SEHAT_PRACTICE_CAD),
+        SEHAT_EMS_SECRET: Boolean(env.SEHAT_EMS_SECRET),
+        SEHAT_EMS_URL: url.includes('/api/practice-cad/incidents'),
+      },
+    });
+  });
+
   // Practice 108 control room (stands in for the real one; same signed contract both ways).
   if (practiceOn) {
     const practice = createPracticeCad({
@@ -167,8 +182,11 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     console.log(`   Citizen app:      http://localhost:${port}/`);
     console.log(`   Hospital console: http://localhost:${port}/hospital`);
     console.log(`   Data mode:        ${DATA_MODE === 'demo' ? 'DEMO – simulated hospital data, OTP shown on screen' : 'LIVE – staff-verified data only'}`);
-    const practice = process.env.SEHAT_PRACTICE_CAD === 'on' && String(process.env.SEHAT_EMS_URL || '').includes('/api/practice-cad/');
-    console.log(`   Ambulance (108):  ${emsEnabled() ? `${practice ? 'PRACTICE control room (signed integration, not the real 108) at' : 'control room at'} ${new URL(process.env.SEHAT_EMS_URL).host}` : 'SIMULATED control room (set SEHAT_EMS_URL + SEHAT_EMS_SECRET)'}`);
+    const practice = isOn(process.env.SEHAT_PRACTICE_CAD) && String(process.env.SEHAT_EMS_URL || '').includes('/api/practice-cad/');
+    let emsHost = 'invalid SEHAT_EMS_URL';
+    try { emsHost = new URL(process.env.SEHAT_EMS_URL).host; } catch { /* reported below */ }
+    console.log(`   Ambulance (108):  ${emsEnabled() ? `${practice ? 'PRACTICE control room (signed integration, not the real 108) at' : 'control room at'} ${emsHost}` : 'SIMULATED control room (set SEHAT_EMS_URL + SEHAT_EMS_SECRET)'}`);
+    if (isOn(process.env.SEHAT_PRACTICE_CAD) && !process.env.SEHAT_EMS_SECRET) console.log('   ⚠ SEHAT_PRACTICE_CAD is on but SEHAT_EMS_SECRET is empty – practice control room stays off');
     console.log(`   SMS channel:      ${process.env.SEHAT_SMS_SECRET ? `inbound on, outbound ${process.env.SEHAT_SMS_SEND_URL ? 'on' : 'simulated'}${process.env.SEHAT_SMS_NUMBER ? `, number ${process.env.SEHAT_SMS_NUMBER}` : ''}` : 'off (demo simulator only)'}`);
     console.log(`   Citizen sign-in:  ${DATA_MODE === 'demo' ? 'Aadhaar + OTP (simulated UIDAI, OTP shown on screen)' : 'Aadhaar + OTP needs a licensed AUA/KUA provider – not connected'}`);
     console.log(`   Generative AI:    ${aiEnabled() ? `${aiProvider()} enabled` : 'off (set GEMINI_API_KEY or ANTHROPIC_API_KEY) – using offline engines'}`);
